@@ -1,0 +1,4 @@
+{
+  "_about": "Maintenance records. Each entry: {\"from\": \"YYYY-MM-DD\", \"to\": \"YYYY-MM-DD\", \"note\": \"clutch issue\", \"replaced_by\": \"26514\"}. Trips on those days are marked Run by replacement and taken out of the plan; drives to or from a workshop are never counted as unplanned.",
+  "vehicles": {}
+}

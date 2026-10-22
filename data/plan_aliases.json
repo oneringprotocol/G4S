@@ -1,0 +1,35 @@
+{
+  "_about": "Maps location names used in the G4S route plan (Sheet1) to Geofence Directory sites. Keys under a vehicle number apply to that vehicle only; keys under * apply to all. Group lists for 15590 come from the branch tab MSS Sharjah, which lists the sites behind each Sheet1 group.",
+  "*": {
+    "RAK Accommodation": ["RAK Accomodation"],
+    "Ajman Accommodation": ["Ajman Accomodation"],
+    "ALQ Accommodation": ["Al Quoz Accommodation"],
+    "ALQ accommodition": ["Al Quoz Accommodation"],
+    "ALQ - Ladies": ["Al Quoz Accommodation", "Ladies Accommodation Dubai"],
+    "Ladies accommodation": ["Ladies Accommodation Dubai"],
+    "M.H. Alshaya PRIMARK MOE": ["MOE"],
+    "M.H. Alshaya PRIMARK MOEOE": ["MOE"],
+    "Spinneys Dubai LLC, Umm Squim": ["Umm Squim"],
+    "Spinneys Waitrose Motor City Mall": ["Spinneys Moter City"],
+    "MH Alshaya VSFA, Dubai Hills": ["Dubai Hills"],
+    "MH Alshaya Ulta, Dubai Hills": ["Dubai Hills"],
+    "Logix": ["Logix Jafza"],
+    "UAB Festival Plaza,": ["UAB Festival Plaza"],
+    "Meganta - KC Ladies": ["Magenta", "KC Ladies"],
+    "Meganta": ["Magenta"],
+    "Jumerah Sadyaat": ["JUMIRAH SADIYAAT ISLAND RESORT"],
+    "Rosewood": ["Rosewood Hotel"]
+  },
+  "15590": {
+    "Richmount / Xyz": ["RICHMOND PETROBASE RMC FZE", "BOSKALIS WESTMINSTER", "VAN OORD GULF FZE", "AIR LIQUIDE MANUFACTURING RMC FZC(ALMEM-RMC-FZC)", "UTICO Khur Khair"],
+    "UTICO": ["UTICO HAMARA PLANT", "UTICO Free Zone", "UTICO IWP", "SAVER GLASS", "GUARDIAN GLASS", "ELITE EXTRUSION LLC AL JAZEERA", "NASHAT METAL"],
+    "innobit": ["MSSL", "TRITON", "INNOBIT"]
+  },
+  "15993": {
+    "IFCO BMW": ["Iffco S & D Ware House BMW"],
+    "IFFCO BMW": ["Iffco S & D Ware House BMW"],
+    "SIB Mohela": ["SIB Muweileh"],
+    "Falcon": ["Falcon Gold refinery"],
+    "Spinneys": ["SPINNEYS 6 MALL"]
+  }
+}

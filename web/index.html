@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>G4S Route Audit</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="app.css">
+<script>
+  // apply the saved theme before first paint
+  try { var t = localStorage.getItem('g4s-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="hrow">
+    <div>
+      <h1 id="title">Route audit</h1>
+      <div class="sub" id="subtitle">Loading data…</div>
+    </div>
+    <div class="hright">
+      <button class="iconbtn" id="theme" aria-label="Theme">◐ Auto</button>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-route" aria-selected="true" aria-controls="view-route">Route check</button>
+    <button class="tab" role="tab" id="tab-mileage" aria-selected="false" aria-controls="view-mileage">Mileage &amp; excess use</button>
+  </nav>
+</header>
+
+<main id="view-route" role="tabpanel" aria-labelledby="tab-route">
+  <div class="daybar">
+    <div class="seg" role="group" aria-label="Mode">
+      <button class="sbtn on" id="m-plan">Planned vs actual</button>
+      <button class="sbtn" id="m-replay">▶ Replay</button>
+    </div>
+    <label class="dd">Day <select id="daysel" aria-label="Day"></select></label>
+    <span class="opsrc" id="opsrc"></span>
+  </div>
+  <div id="opsnote"></div>
+  <div class="rc">
+    <section class="rcmain">
+      <div class="vrow">
+        <span class="vbadge" id="vbadge">DF</span>
+        <label class="dd"><span class="hidden">Vehicle</span><select id="vsel" aria-label="Vehicle"></select></label>
+        <span class="drv" id="vdrv"></span>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="rpbar hidden" id="rpbar">
+        <button class="play" id="rp-play">▶ Play</button>
+        <span class="clock" id="rp-clock">00:00</span>
+        <label>Speed <span class="seg" id="rp-speed"></span></label>
+        <label><input type="checkbox" id="rp-follow" checked> Follow bus</label>
+        <label><input type="checkbox" id="rp-explain" checked> Explain movement (one pop up at a time)</label>
+        <div class="scrub">
+          <input type="range" id="rp-scrub" min="0" max="1" step="1" aria-label="Replay time">
+          <div class="band" id="rp-band"></div>
+          <div class="ticks" id="rp-ticks"></div>
+        </div>
+      </div>
+      <div class="mapwrap">
+        <div id="map"></div>
+        <div class="mapctl">
+          <button id="z-in" aria-label="Zoom in">+</button>
+          <button id="z-out" aria-label="Zoom out">−</button>
+          <button id="z-fit" aria-label="Fit the day">⤢</button>
+        </div>
+        <div class="legend" id="legend"></div>
+        <div id="ozpanel"></div>
+        <div class="narr hidden" id="narr"></div>
+      </div>
+    </section>
+    <aside class="side" id="side"></aside>
+  </div>
+</main>
+
+<main id="view-mileage" class="hidden" role="tabpanel" aria-labelledby="tab-mileage">
+  <div class="mx" id="mx"></div>
+</main>
+
+<script src="vendor/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

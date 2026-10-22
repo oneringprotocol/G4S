@@ -1,0 +1,10 @@
+{
+  "_about": "Fixes to the Geofence Directory (README section 6). 'set' replaces a site's coordinates; 'add' adds sites missing from the directory.",
+  "set": {
+    "JUMIRAH SADIYAAT ISLAND RESORT": [24.5593, 54.4514],
+    "Rosewood Hotel": [24.49974, 54.38758]
+  },
+  "add": {
+    "KC Ladies": [24.4031, 54.5752]
+  }
+}
