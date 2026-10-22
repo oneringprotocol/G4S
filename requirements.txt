@@ -1,0 +1,5 @@
+fastapi>=0.110
+uvicorn>=0.29
+openpyxl>=3.1
+# tests only
+playwright>=1.40
