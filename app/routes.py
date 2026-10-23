@@ -8,6 +8,7 @@ import json
 import subprocess
 import threading
 import urllib.request
+from types import SimpleNamespace
 
 from . import config
 from .geo import dist_m
@@ -42,6 +43,22 @@ def _osrm(points):
     if data.get("code") != "Ok":
         return None
     return [[round(lat, 5), round(lon, 5)] for lon, lat in data["routes"][0]["geometry"]["coordinates"]]
+
+
+def road_path(lls):
+    """Road line through [lat, lon] points in order, or None when OSRM cannot be reached."""
+    key = "path|" + "|".join("%.5f,%.5f" % tuple(ll) for ll in lls)
+    if key in _cache:
+        return _cache[key]
+    try:
+        line = _osrm([SimpleNamespace(lat=ll[0], lon=ll[1]) for ll in lls])
+    except Exception:
+        line = None
+    if line:
+        with _lock:
+            _cache[key] = line
+            _FILE.write_text(json.dumps(_cache, separators=(",", ":")))
+    return line
 
 
 def planned_line(home, sites):

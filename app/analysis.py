@@ -1,7 +1,7 @@
 """Compares GPS with the G4S route plan (README section 4 rules).
 
 Pipeline for one vehicle over the whole GPS period:
-  points -> segment km (odometer, else straight line) -> stops -> runs
+  points -> GPS gaps filled with an estimated track (gapfill.py) -> segment km (odometer, else straight line) -> stops -> runs
   (accommodation to accommodation) -> site visits per run -> runs matched
   to planned trips per day -> stop status per planned site -> day summary.
 """
@@ -11,6 +11,7 @@ from typing import Dict, List
 
 from . import config as C
 from .geo import UAE, day_key, day_label, dist_m, hhmm, local
+from .gapfill import GapFiller
 from .plan import SiteIndex, Vehicle
 from .sources.base import GpsPoint
 
@@ -86,8 +87,9 @@ def _delta(m):
 
 class VehicleAnalysis:
     def __init__(self, veh: Vehicle, sites: SiteIndex, pts: List[GpsPoint], records=None):
-        self.v, self.sites, self.pts = veh, sites, pts
+        self.v, self.sites = veh, sites
         self.grid = SiteGrid(sites)
+        self.pts = GapFiller(veh, sites, self.grid, pts).fill()
         self.records = records or []
         self.home = sites.by_id.get(veh.home)
         self._run()
@@ -100,9 +102,6 @@ class VehicleAnalysis:
         h = self.home
         self.at_home = [h is not None and dist_m(p.lat, p.lon, h.lat, h.lon) <= h.radius for p in pts]
         self.stops = _stops(pts)
-        self.gaps = [{"i": i, "t0": a.t, "t1": b.t, "km": round(self.km[i], 1),
-                      "moved": dist_m(a.lat, a.lon, b.lat, b.lon) > 300 or self.km[i] > 0.5}
-                     for i, (a, b) in enumerate(zip(pts, pts[1:])) if b.t - a.t >= C.GAP_S]
         self.runs = self._runs()
         self.days = sorted({day_key(p.t) for p in pts})
         self._day_cache = {}
@@ -152,13 +151,11 @@ class VehicleAnalysis:
             vi["stopped"] = bool(st)
             if st:
                 vi["t0"], vi["t1"] = min(vi["t0"], st[0]["t0"]), max(vi["t1"], st[-1]["t1"])
-        gaps = [g for g in self.gaps if a <= g["i"] < b]
         spd = max((p.speed for p in pts[a:b + 1]), default=0)
         workshop = any("workshop" in self.sites.by_id[v["site"]].name.lower() for v in visits)
         return {"id": rid, "a": a, "b": b, "dep": pts[a].t, "arr": pts[b].t,
-                "km": km, "far_m": far, "visits": visits, "gaps": gaps,
-                "max_speed": spd, "workshop": workshop, "trips": [],
-                "dep_in_gap": bool(gaps and gaps[0]["i"] == a)}
+                "km": km, "far_m": far, "visits": visits,
+                "max_speed": spd, "workshop": workshop, "trips": []}
 
     # ---------- one day ----------
     def day(self, key):
@@ -198,14 +195,13 @@ class VehicleAnalysis:
                 passed = sum(1 for v in r["visits"] if v["site"] in tr.sites and not v["stopped"])
                 dm = abs(r["dep"] - ts) / 60
                 overlap = r["dep"] < te + W and r["arr"] > ts - W
-                blind = any(g["moved"] and g["t0"] < te and g["t1"] > ts for g in r["gaps"])
                 if not ((dm <= C.MATCH_WINDOW_MIN) or (overlap and stopped + passed)):
                     continue
                 # a run already matched can cover a second (chained) trip only if it stopped at its sites,
                 # and only when no unused run fits
                 if r["id"] in used and not stopped:
                     continue
-                score = stopped * 100 + passed * 20 - dm + (50 if blind else 0) - (400 if r["id"] in used else 0)
+                score = stopped * 100 + passed * 20 - dm - (400 if r["id"] in used else 0)
                 if bs is None or score > bs:
                     best, bs = r, score
             if best:
@@ -231,13 +227,6 @@ class VehicleAnalysis:
             for v in r["visits"]:
                 if v["site"] == site_id and v["stopped"] and ts - W <= v["t0"] <= te + W:
                     return ("Out", v)
-        blind = [g for g in self.gaps if g["moved"] and g["t0"] < te + tol and g["t1"] > ts - tol]
-        if run:
-            blind = blind or [g for g in run["gaps"] if g["moved"]]
-        if blind:
-            return ("NoData", {"gap": blind[0]})
-        if not any(ts - 3600 <= q.t <= te + 3600 for q in self.pts[::20]):
-            return ("NoData", None)
         return ("Not", None)
 
     def _day(self, key):
@@ -272,9 +261,8 @@ class VehicleAnalysis:
                     row["t"] = info["t0"]
                     if info.get("stop_s"):
                         row["dur_min"] = round(info["stop_s"] / 60, 1)
-                if info and "gap" in info:
-                    g = info["gap"]
-                    row["note"] = "No GPS %s to %s" % (hhmm(g["t0"]), hhmm(g["t1"]))
+                    if self.pts[info["k0"]].inferred:
+                        row["est"] = True
                 stops.append(row)
             stops.sort(key=lambda r: (r.get("t") or 9e12))
             item = {"n": tr.n, "group": tr.group, "plan_start": tr.start, "plan_end": tr.end,
@@ -290,8 +278,7 @@ class VehicleAnalysis:
                              "delta": _delta((run["dep"] - p["ts"]) / 60),
                              "delta_min": round((run["dep"] - p["ts"]) / 60),
                              "km": round(run["km"] / max(len(shared), 1), 1),
-                             "chained": [n for n in shared if n != tr.n],
-                             "gap_note": self._gap_note(run)})
+                             "chained": [n for n in shared if n != tr.n]})
             trips.append(item)
 
         # ---- runs of the day ----
@@ -361,13 +348,7 @@ class VehicleAnalysis:
         for i in idling:
             i.update(time=hhmm(i["t0"]), end=hhmm(i["t1"]), dur_min=round((i["t1"] - i["t0"]) / 60))
 
-        # ---- GPS gaps on the day ----
-        gaps = [{"from": hhmm(g["t0"]), "to": hhmm(g["t1"]), "t0": g["t0"], "t1": g["t1"],
-                 "min": round((g["t1"] - g["t0"]) / 60), "km": g["km"], "moved": g["moved"]}
-                for g in self.gaps if t0 <= g["t0"] < t1]
-
-        planned_stops = sum(counts[k] for k in ("Validated", "Passed", "Out", "Not", "NoData"))
-        with_data = planned_stops - counts["NoData"]
+        planned_stops = sum(counts[k] for k in ("Validated", "Passed", "Out", "Not"))
         n_unpl = sum(1 for r in runs_out if r["kind"] == "unplanned")
         n_run = sum(1 for t in trips if t.get("run") is not None)
         out = {
@@ -375,8 +356,8 @@ class VehicleAnalysis:
             "record": rec,
             "kpi": {
                 "validated": counts["Validated"], "planned_stops": planned_stops,
-                "with_data": with_data, "no_data": counts["NoData"],
-                "pct": round(100 * counts["Validated"] / with_data) if with_data else None,
+                "with_data": planned_stops,
+                "pct": round(100 * counts["Validated"] / planned_stops) if planned_stops else None,
                 "km": round(km_total, 1), "km_planned": round(km_planned, 1),
                 "km_unplanned": round(km_unpl, 1), "km_other": round(km_yard + km_by["workshop"], 1),
                 "trips_planned": len(trips), "trips_run": n_run, "trips_unplanned": n_unpl,
@@ -386,18 +367,11 @@ class VehicleAnalysis:
             },
             "counts": dict(counts),
             "trips": trips, "runs": runs_out, "outside": outside,
-            "speeding": speeding, "idling": idling, "gaps": gaps,
+            "speeding": speeding, "idling": idling,
         }
         out["track"] = self._track(t0, t1, runs_out)
         out["events"] = self._events(out)
         return out
-
-    def _gap_note(self, run):
-        g = [x for x in run["gaps"] if x["moved"]]
-        if not g:
-            return None
-        km = sum(x["km"] for x in g)
-        return "GPS signal lost %s to %s, %.0f km by odometer" % (hhmm(g[0]["t0"]), hhmm(g[-1]["t1"]), km)
 
     def _run_at(self, t):
         for r in self.runs:
@@ -449,20 +423,19 @@ class VehicleAnalysis:
                 "dep": hhmm(dep), "arr": hhmm(arr), "t0": dep, "t1": arr,
                 "dur": _fmt_min(dur), "km": round(r["km"], 1), "trips": trip_ns,
                 "night": night, "max_speed": r["max_speed"], "comment": comment,
-                "gap_note": self._gap_note(r),
                 "sites": [self.sites.by_id[v["site"]].label for v in r["visits"] if v["stopped"]]}
 
     def _track(self, t0, t1, runs_out):
-        """Thinned track for the map: [t, lat, lon, speed, run id or -1]."""
+        """Thinned track for the map: [t, lat, lon, speed, run id or -1, 1 if estimated]."""
         out, last = [], None
         rmap = [(r["t0"], r["t1"], r["id"]) for r in runs_out]
         for p in self.pts:
             if not (t0 <= p.t < t1):
                 continue
-            if last and dist_m(last.lat, last.lon, p.lat, p.lon) < 12 and p.t - last.t < 300:
+            if last and last.inferred == p.inferred and dist_m(last.lat, last.lon, p.lat, p.lon) < 12 and p.t - last.t < 300:
                 continue
             rid = next((i for a, b, i in rmap if a <= p.t <= b), -1)
-            out.append([p.t, round(p.lat, 5), round(p.lon, 5), p.speed, rid])
+            out.append([p.t, round(p.lat, 5), round(p.lon, 5), p.speed, rid, 1 if p.inferred else 0])
             last = p
         return out
 
@@ -490,10 +463,6 @@ class VehicleAnalysis:
             ev.append({"t": s["t0"], "kind": "speed", "title": "Speeding %d km/h" % s["max"],
                        "text": "Over %d km/h for %d s near %s." % (C.SPEED_LIMIT_KMH, max(s["dur_s"], 1), s["near"]),
                        "lat": s["lat"], "lon": s["lon"]})
-        for g in d["gaps"]:
-            if g["moved"]:
-                ev.append({"t": g["t0"], "kind": "gap", "title": "GPS signal lost",
-                           "text": "No GPS from %s to %s. The odometer shows %.0f km driven." % (g["from"], g["to"], g["km"])})
         ev.sort(key=lambda e: e["t"])
         for e in ev:
             e["time"] = hhmm(e["t"])

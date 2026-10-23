@@ -40,8 +40,9 @@ app/
   main.py          API + static files     /api/meta  /api/sites  /api/vehicles/{v}/days/{day}  /api/mileage
   config.py        paths and analysis rules
   plan.py          Sheet1 + Geofence Directory parser
+  gapfill.py       fills GPS gaps with an estimated track before the analysis runs
   analysis.py      stops, runs, trip matching, stop status, km, outside stops, speeding, idling, replay events
-  routes.py        planned route lines (OSRM road geometry, cached; straight lines offline)
+  routes.py        planned route lines and estimated gap paths (OSRM road geometry, cached; straight lines offline)
   sources/         GPS sources (xlsx now, provider later)
 web/               index.html, app.css, app.js, vendor/leaflet
 data/              aliases, overrides, records, cache/
@@ -51,7 +52,11 @@ tests/shots.py     Playwright check: no page errors, no banned wording, no horiz
 ## Analysis notes
 
 - **Km** comes from the tracker odometer, because it keeps counting while the GPS fix is lost. Straight-line distance is used only when the odometer is missing or not credible.
-- **GPS gaps.** Planned stops that fall inside a gap of 10 min or more while the bus moved are shown as **No GPS data** (muted), not Not visited. They are left out of the validated percentage.
+- **GPS gaps are filled, not shown.** A gap is 10 min or more with no position. `app/gapfill.py` rebuilds it before the analysis runs, so there is no "No GPS data" status anywhere:
+  - If the bus did not move, it stays where it was.
+  - If the bus moved, the planned sites due in that time that the GPS never shows are placed on the OSRM road path from the last fix to the next, in the order that drives the least. A site is kept only while the path still fits the odometer km: road km × 0.7 must be at most the odometer km, because the odometer reads about 15% under OSRM here. The bus waits at the start, drives at its usual speed and stops 3 min (`EST_DWELL_S`) at each site.
+  - The analysis then treats these as ordinary stops. Estimated stop times show with **≈**, and the estimated path is a dotted orange line on the map.
+  - Km is unchanged, because it still comes from the odometer.
 - **Out of window** means the bus stopped at the site, but more than 30 min outside the planned time or on a different run.
 - **Trip matching:**
   - A run matches a planned trip when its departure is within ±150 min of the plan time.

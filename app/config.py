@@ -15,7 +15,21 @@ GEOFENCE_TAB = "Geofence Directory"
 # GPS source: "xlsx" reads sheets/Route_*.xlsx. A provider API source plugs in here later.
 GPS_SOURCE = os.environ.get("G4S_GPS_SOURCE", "xlsx")
 
-UTC_OFFSET_H = 4                 # GPS timestamps are UTC; UAE time is +4 h
+# Accounts and email. SMTP settings come from the environment (see docs/APP.md);
+# without them, emails are written to data/outbox/ instead of being sent.
+ADMIN_EMAIL = os.environ.get("G4S_ADMIN_EMAIL", "oneringprotocol@gmail.com").lower()
+BASE_URL = os.environ.get("G4S_BASE_URL", "http://localhost:8000").rstrip("/")
+DB_FILE = DATA / "app.db"
+OUTBOX = DATA / "outbox"
+SESSION_DAYS = 7
+PASSWORD_MIN = 10
+SMTP_HOST = os.environ.get("G4S_SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("G4S_SMTP_PORT", "465"))
+SMTP_USER = os.environ.get("G4S_SMTP_USER", "")
+SMTP_PASS = os.environ.get("G4S_SMTP_PASS", "")
+SMTP_FROM = os.environ.get("G4S_SMTP_FROM", SMTP_USER)
+
+UTC_OFFSET_H = 4                # GPS timestamps are UTC; UAE time is +4 h
 STOP_SPEED_KMH = 3               # a stop is speed <= 3 km/h ...
 STOP_MIN_S = 30                  # ... for 30 s or more
 GEOFENCE_M = 300
@@ -26,7 +40,8 @@ SPEED_LIMIT_KMH = 100
 IDLE_MIN_S = 10 * 60             # idling at accommodation over 10 min
 MATCH_WINDOW_MIN = 150           # GPS departure within +-150 min of the plan
 ON_TIME_MIN = 30                 # a stop counts as in window up to 30 min either side
-GAP_S = 10 * 60                  # no GPS for 10 min or more is a gap
+GAP_S = 10 * 60                  # no GPS for 10 min or more is a gap; gaps are filled with an estimated track
+EST_DWELL_S = 3 * 60             # estimated stop at each planned site inside a gap
 NIGHT_FROM, NIGHT_TO = 22, 4     # departures from 22:00 to 03:59 are at night
 SHORT_HOP_KM = 3
 YARD_RADIUS_M = 1500             # runs that stay this close to home are accommodation moves

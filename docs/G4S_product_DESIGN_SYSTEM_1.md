@@ -78,7 +78,7 @@ Always use tokens, never raw hex values in components. Every token has a dark-mo
 **Rules:**
 - Text on a tint always uses the matching `-ink` token, which meets WCAG AA contrast.
 - Never use color alone: every status chip also has a word and an icon (✓ ↷ ⏱ ✕).
-- Planned is always green; unplanned is always orange. This holds in tiles, pills, bars and replay trails.
+- Planned is green and unplanned is orange in tiles, pills and replay trails. The one exception is the km chart on Mileage & excess use: planned km bars are pastel blue (`--x2-svc`) and unplanned km bars pastel orange (`--x2-unp`).
 
 ### 2.2 Typography
 
@@ -253,7 +253,7 @@ Vehicle type is a 34 px navy square with the abbreviation, e.g. **DF** for Dongf
 - **Show ↗** on each row opens the stop on the Route check map.
 
 ### Charts (Mileage & excess use)
-- Hand-drawn SVG with stacked bars: planned (pastel blue / green) + unplanned (pastel orange). There are no red reference lines or planned km.
+- Hand-drawn SVG with stacked bars: planned (pastel blue, `--x2-svc`) + unplanned (pastel orange, `--x2-unp`) + accommodation moves and other (grey, `--x2-yard`). In the bar tooltip the planned line is navy, because pastel blue text is too faint on white. There are no red reference lines or planned km.
   - Bars have rounded tops (4 px).
   - In-bar labels are 12 px bold; side labels use `--ink-2`.
 - Daily / Weekly / Monthly segmented control.

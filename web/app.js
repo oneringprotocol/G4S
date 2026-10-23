@@ -18,8 +18,7 @@ const ST = {
   Validated: { icon: '✓', label: 'Validated', meaning: 'Stopped inside the geofence within 30 min of the planned time' },
   Passed: { icon: '↷', label: 'Passed', meaning: 'Drove through the geofence without stopping' },
   Out: { icon: '⏱', label: 'Out of window', meaning: 'Stopped at the site, but more than 30 min outside the planned time or on another trip' },
-  Not: { icon: '✕', label: 'Not visited', meaning: 'No GPS visit to the site during the trip' },
-  NoData: { icon: '◌', label: 'No GPS data', meaning: 'The tracker sent no position during this part of the trip, so the stop cannot be checked' },
+  Not: { icon: '✕', label: 'Not visited', meaning: 'The bus did not visit the site during the trip' },
   Repl: { icon: '🔧', label: 'Run by replacement', meaning: 'Trip run by a replacement vehicle (maintenance records)' },
 };
 const chip = s => `<span class="chip st-${s}">${ST[s].icon} ${ST[s].label}</span>`;
@@ -186,7 +185,7 @@ function renderKpis() {
   const k = S.data.kpi;
   const tiles = [
     { id: 'val', v: `${k.validated}<small> of ${k.with_data}</small>`, l: 'Planned stops validated',
-      s: (k.pct == null ? 'No stops to check' : k.pct + '% of stops with GPS') + (k.no_data ? ` · ${k.no_data} with no GPS` : '') },
+      s: k.pct == null ? 'No stops to check' : k.pct + '% of planned stops' },
     { id: 'km', v: `${fmt(k.km)}<small> km</small>`, l: 'Actual km (GPS)',
       s: `${fmt(k.km_planned)} km on planned trips · ${fmt(k.km_unplanned)} km unplanned` },
     { id: 'trips', v: `${k.trips_run} + ${k.trips_unplanned}`, l: 'Planned + unplanned trips',
@@ -213,13 +212,12 @@ function scrollSide(sel) {
 function renderSide() {
   const d = S.data, k = d.kpi, c = d.counts;
   const label = d.label.toUpperCase();
-  const legendRows = ['Validated', 'Passed', 'Out', 'Not', 'NoData'].map(s =>
+  const legendRows = ['Validated', 'Passed', 'Out', 'Not'].map(s =>
     `<tr><td>${chip(s)}</td><td>${ST[s].meaning}</td><td class="num">${c[s] || 0}</td></tr>`).join('');
   const trips = d.trips.map(tripCard).join('') || '<div class="empty">No planned trips for this vehicle.</div>';
   const unp = d.runs.filter(r => r.kind === 'unplanned' || r.kind === 'workshop');
   const night = [...d.trips.filter(t => t.night && t.run != null).map(t => ({ p: 1, t: t.dep, txt: `Trip ${t.n} · ${t.group}`, km: t.km })),
     ...d.runs.filter(r => r.night && r.kind === 'unplanned').map(r => ({ p: 0, t: r.dep, txt: 'Unplanned trip', km: r.km, run: r }))];
-  const gaps = d.gaps.filter(g => g.moved);
   $('#side').innerHTML = `
     <div class="totals">
       <div>Total planned trips today <b class="num">${k.trips_planned}</b></div>
@@ -232,7 +230,6 @@ function renderSide() {
     <div class="sec"><h2>At night · 22:00 to 04:00</h2>
       <div style="margin-bottom:6px"><span class="chip ahp">${night.filter(x => x.p).length} planned</span> <span class="chip ahu">${night.filter(x => !x.p).length} unplanned</span></div>
       ${night.length ? night.map(x => `<div class="srow"><span>${esc(x.txt)}</span><span class="tm">${x.t}</span><span class="num">${fmt(x.km)} km</span></div>`).join('') : '<div class="empty">No trips at night on this day.</div>'}</div>
-    ${gaps.length ? `<div class="sec"><h2>GPS coverage</h2>${gaps.map(g => `<div class="trip gapn" style="cursor:default">No GPS from ${g.from} to ${g.to} while the bus was moving. The odometer shows ${fmt(g.km, 0)} km in that time. Stops in that time show as No GPS data.</div>`).join('')}</div>` : ''}
     <div class="note">Times are UAE time (GPS UTC + 4 h). Geofences are 300 m circles (accommodation 400 m). A stop is 3 km/h or less for 30 s or more. Source: ${S.meta.source === 'xlsx' ? 'GPS tracker export' : 'GPS provider'}.</div>`;
   $$('#side .trip[data-n]').forEach(el => el.onclick = e => {
     const row = e.target.closest('.srow');
@@ -254,12 +251,11 @@ function tripCard(t) {
   if (t.staff_out != null) meta.push(`Staff ${t.staff_out} out, ${t.staff_back ?? 0} back`);
   const chain = t.chained && t.chained.length ? `<div class="meta">Same run as trip ${t.chained.join(', ')}</div>` : '';
   const rows = t.stops.map(s => `<div class="srow" data-lat="${s.lat}" data-lon="${s.lon}" data-site="${s.site}" title="Show on map">
-      <span>${esc(s.label)}</span><span class="tm">${s.time ? s.time + (s.dur_min ? ' · ' + fmt(s.dur_min) + ' min' : '') : (s.note ? esc(s.note) : '')}</span>${chip(s.status)}</div>`).join('');
+      <span>${esc(s.label)}</span><span class="tm"${s.est ? ' title="Estimated from the odometer and the route plan"' : ''}>${s.time ? (s.est ? '≈ ' : '') + s.time + (s.dur_min ? ' · ' + fmt(s.dur_min) + ' min' : '') : (s.note ? esc(s.note) : '')}</span>${chip(s.status)}</div>`).join('');
   return `<div class="trip${S.selTrip === t.n ? ' on' : ''}${t.replaced ? ' repl' : ''}" data-n="${t.n}">
     <div class="th"><span class="sw" style="border-color:${col}"></span><span class="tn">Trip ${t.n} · ${esc(t.group)}</span>
       <span class="vc">${t.replaced ? chip('Repl') : `${t.validated} of ${t.stops.length} validated`}</span></div>
     <div class="meta">${meta.join(' · ')}</div>${chain}
-    ${t.gap_note ? `<div class="gapn">◌ ${esc(t.gap_note)}</div>` : ''}
     ${rows}</div>`;
 }
 
@@ -292,7 +288,7 @@ function legend() {
   const rows = [
     `<div><i class="dash" style="border-color:${css('--plan1')}"></i>Planned route (one colour per trip group)</div>`,
     `<div><i style="border-color:${css('--act')}"></i>Actual GPS route</div>`,
-    `<div><i style="border-color:${css('--ink-3')};border-top-style:dotted"></i>No GPS (straight line)</div>`,
+    `<div><i style="border-color:${css('--act')};border-top-style:dotted"></i>Estimated route</div>`,
     `<div><i class="ring" style="border-color:${css('--fence')};background:${css('--fence-fill')}"></i>Planned geofence (300 m)</div>`,
     `<div><i class="ring" style="border-color:${css('--ink-3')};background:${css('--other-fill')}"></i>Other directory site</div>`,
     `<div><i class="dot" style="background:${css('--stop-fill')};border:1px solid ${css('--act')}"></i>Actual stop at a site</div>`,
@@ -305,20 +301,19 @@ function legend() {
 }
 
 function trackSegments(track) {
-  // split the track at GPS gaps so a lost signal never draws as a driven road
-  const segs = [], gaps = [];
+  // split the track where it switches between GPS and estimated points (p[5]); the estimate is drawn dotted
+  const segs = [], est = [];
   let cur = [];
   for (let i = 0; i < track.length; i++) {
     const p = track[i];
-    if (i && p[0] - track[i - 1][0] > 600) {
-      if (cur.length > 1) segs.push(cur);
-      gaps.push([[track[i - 1][1], track[i - 1][2]], [p[1], p[2]]]);
-      cur = [];
+    if (i && p[5] !== track[i - 1][5]) {
+      if (cur.length > 1) (track[i - 1][5] ? est : segs).push(cur);
+      cur = [cur[cur.length - 1]];
     }
     cur.push([p[1], p[2]]);
   }
-  if (cur.length > 1) segs.push(cur);
-  return { segs, gaps };
+  if (cur.length > 1) (track[track.length - 1][5] ? est : segs).push(cur);
+  return { segs, est };
 }
 
 function siteStatusToday(id) {
@@ -352,19 +347,19 @@ function redrawMap(fit) {
     L.polyline(pl.line, { color: tripColor(t), weight: 3, dashArray: '7 7', opacity: replay ? .35 : on ? .9 : .2, interactive: false }).addTo(LY.plan);
   });
   // actual route
-  const { segs, gaps } = trackSegments(d.track);
+  const { segs, est } = trackSegments(d.track);
   segs.forEach(s => {
     L.polyline(s, { color: css('--surface'), weight: 6, opacity: replay ? .3 : .75, interactive: false }).addTo(LY.track);
     L.polyline(s, { color: css('--act'), weight: 3, opacity: replay ? .3 : .95, interactive: false }).addTo(LY.track);
   });
-  gaps.forEach(g => L.polyline(g, { color: css('--ink-3'), weight: 2, dashArray: '1 6', opacity: .9 })
-    .bindPopup('<b>No GPS</b><br>The tracker sent no position here. The line is straight, not the road driven.').addTo(LY.track));
+  est.forEach(s => L.polyline(s, { color: css('--act'), weight: 3, dashArray: '2 7', opacity: replay ? .3 : .9 })
+    .bindPopup('<b>Estimated route</b><br>Rebuilt from the odometer and the G4S route plan.').addTo(LY.track));
   // actual stops at sites
   d.trips.forEach(t => t.stops.forEach(s => {
     if (!s.t || !(s.status === 'Validated' || s.status === 'Out')) return;
     const p = posAt(s.t) || [s.lat, s.lon];
     L.circleMarker(p, { radius: 5, color: css('--act'), weight: 1.5, fillColor: css('--stop-fill'), fillOpacity: 1 })
-      .bindPopup(`<b>${esc(s.label)}</b><br>Trip ${t.n} · ${s.time}${s.dur_min ? ' · ' + fmt(s.dur_min) + ' min' : ''}<br>${chip(s.status)}`).addTo(LY.stops);
+      .bindPopup(`<b>${esc(s.label)}</b><br>Trip ${t.n} · ${s.est ? '≈ ' : ''}${s.time}${s.dur_min ? ' · ' + fmt(s.dur_min) + ' min' : ''}<br>${chip(s.status)}`).addTo(LY.stops);
   }));
   if (S.panel === 'oz') drawOzPins();
   if (S.selTrip != null) drawSel();
@@ -576,7 +571,7 @@ function renderReplay(jump) {
   if (pb) pb.style.width = run ? ((R.t - run.t0) / Math.max(run.t1 - run.t0, 1) * 100) + '%' : '0%';
 }
 
-const EVCOL = { planned: '--trail-svc', unplanned: '--trail-oth', yard: '--x2-yard', workshop: '--serious', stop: '--good', outside: '--zone-line', speed: '--x2-plan', gap: '--ink-3' };
+const EVCOL = { planned: '--trail-svc', unplanned: '--trail-oth', yard: '--x2-yard', workshop: '--serious', stop: '--good', outside: '--zone-line', speed: '--x2-plan' };
 
 function narrate(i, ll) {
   const el = $('#narr'), e = S.data.events[i];
@@ -709,7 +704,7 @@ function renderMileage() {
       <div class="ch"><h3>Actual km by ${M.mode === 'daily' ? 'day' : M.mode === 'weekly' ? 'week' : 'month'}</h3>
         <div class="r"><div class="seg" role="group" aria-label="Period">${['daily', 'weekly', 'monthly'].map(m => `<button class="sbtn${M.mode === m ? ' on' : ''}" data-m="${m}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}</div></div></div>
       <div class="chart" id="chart"></div>
-      <div class="clegend"><span><i style="background:${css('--trail-svc')}"></i>Planned trips</span><span><i style="background:${css('--x2-unp')}"></i>Unplanned trips</span><span><i style="background:${css('--x2-yard')}"></i>Accommodation moves and other</span></div>
+      <div class="clegend"><span><i style="background:${css('--x2-svc')}"></i>Planned trips</span><span><i style="background:${css('--x2-unp')}"></i>Unplanned trips</span><span><i style="background:${css('--x2-yard')}"></i>Accommodation moves and other</span></div>
       <div class="note">Click a bar to filter the tables below to that period.</div>
     </div>
     ${M.period ? `<div style="margin-bottom:10px"><span class="fchip">Showing ${esc(M.period.label)} <button id="clr" aria-label="Clear filter">✕</button></span></div>` : ''}
@@ -809,7 +804,7 @@ function drawChart() {
   const top = Math.ceil(max / step) * step;
   const y = v => pt + (H - pt - pb) * (1 - v / top);
   const bw = Math.min(64, (W - pl - pr) / bars.length * .62), gap = (W - pl - pr) / bars.length;
-  const col = { planned: css('--trail-svc'), unplanned: css('--x2-unp'), other: css('--x2-yard') };
+  const col = { planned: css('--x2-svc'), unplanned: css('--x2-unp'), other: css('--x2-yard') };
   let svg = '';
   for (let v = 0; v <= top; v += step) svg += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" stroke="${css('--line')}"/><text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="${css('--ink-3')}">${fmt(v, 0)}</text>`;
   bars.forEach((b, i) => {
@@ -835,7 +830,7 @@ function drawChart() {
     const b = bars[+r.dataset.i];
     r.onmousemove = e => {
       const box = el.getBoundingClientRect();
-      tip.innerHTML = `<b>${esc(b.label)}</b><br><span class="pos">${fmt(b.planned)} km planned trips</span><br><span class="neg">${fmt(b.unplanned)} km unplanned · ${b.unplanned_trips} trips · ${fmtMin(b.unplanned_min)}</span><br>${fmt(b.other)} km other moves`;
+      tip.innerHTML = `<b>${esc(b.label)}</b><br><span class="pl">${fmt(b.planned)} km planned trips</span><br><span class="neg">${fmt(b.unplanned)} km unplanned · ${b.unplanned_trips} trips · ${fmtMin(b.unplanned_min)}</span><br>${fmt(b.other)} km other moves`;
       tip.classList.remove('hidden');
       tip.style.left = Math.min(e.clientX - box.left + 12, box.width - tip.offsetWidth - 4) + 'px';
       tip.style.top = (e.clientY - box.top - 10) + 'px';

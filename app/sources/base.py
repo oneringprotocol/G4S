@@ -17,6 +17,7 @@ class GpsPoint:
     valid: bool       # GPS fix valid (False = last known position repeated)
     ignition: Optional[bool] = None
     odometer: Optional[float] = None  # metres, as reported by the tracker
+    inferred: bool = False            # estimated across a GPS gap (app/gapfill.py)
 
 
 @dataclass
