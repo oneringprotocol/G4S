@@ -12,7 +12,16 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
 };
-const api = async p => { const r = await fetch(p); if (!r.ok) throw new Error((await r.text()) || r.statusText); return r.json(); };
+const api = async p => {
+  const r = await fetch(p);
+  if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error('Sign in to continue.'); }
+  if (!r.ok) throw new Error((await r.text()) || r.statusText);
+  return r.json();
+};
+async function signOut() {
+  try { await fetch('/auth/logout', { method: 'POST', headers: { 'X-G4S': '1' } }); } catch (e) { /* signed out anyway */ }
+  location.href = '/login';
+}
 
 const ST = {
   Validated: { icon: '✓', label: 'Validated', meaning: 'Stopped inside the geofence within 30 min of the planned time' },
@@ -67,16 +76,26 @@ function syncUrl() {
 async function boot() {
   applyTheme(store.get('g4s-theme', 'auto'));
   try {
-    [S.meta, S.sites] = await Promise.all([api('/api/meta'), api('/api/sites')]);
+    [S.me, S.meta, S.sites] = await Promise.all([api('/api/me'), api('/api/meta'), api('/api/sites')]);
   } catch (e) {
     $('#subtitle').textContent = 'Could not load data: ' + e.message;
     return;
   }
+  $('#userbox').innerHTML = `${S.me.role === 'admin' ? '<a href="/admin">Accounts</a>' : ''}<span class="who" title="${esc(S.me.email)}">${esc(S.me.email)}</span>
+    <button class="iconbtn" id="signout">Sign out</button>`;
+  $('#signout').onclick = signOut;
   S.siteById = Object.fromEntries(S.sites.map(s => [s.id, s]));
   const q = new URLSearchParams(location.search);
   const withGps = S.meta.vehicles.filter(v => v.has_gps);
   const v = S.meta.vehicles.find(x => x.vehicle === q.get('v') && x.has_gps) || withGps[0];
-  if (!v) { $('#subtitle').textContent = 'No GPS data found. Add a GPS export to the sheets folder.'; return; }
+  if (!v) {
+    $('#title').textContent = 'Route audit';
+    $('#subtitle').textContent = S.me.role === 'admin'
+      ? 'No GPS data found. Add a GPS export to the sheets folder.'
+      : S.meta.vehicles.length ? 'Your vehicles have no GPS data yet.' : 'No vehicles are assigned to your account yet. The admin will add them.';
+    $$('.tabs,#view-route,#view-mileage').forEach(el => el.classList.add('hidden'));
+    return;
+  }
   S.vehicle = v.vehicle;
   S.day = (v.days.find(d => d.day === q.get('d')) || v.days[v.days.length - 1]).day;  // opens on the latest day
   fillVehicleSelect();

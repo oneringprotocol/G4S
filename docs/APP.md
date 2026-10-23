@@ -6,10 +6,39 @@ This is the web version of the fleet route audit. It follows `G4S_product_DESIGN
 
 ```bash
 ./run.sh                 # installs fastapi, uvicorn, openpyxl, then serves http://localhost:8000
-python3 tests/shots.py http://localhost:8000 tests/out   # headless walk-through (Brave or Chrome)
+G4S_TEST_EMAIL=... G4S_TEST_PASSWORD=... python3 tests/shots.py http://localhost:8000 tests/out   # headless walk-through (Brave or Chrome)
 ```
 
 The first start parses the GPS export, which takes about 8 s, and caches it in `data/cache/`. Later starts take about 1 s.
+
+## Accounts
+
+Every page and API needs a signed-in, approved account.
+
+| Step | What happens |
+|---|---|
+| First start | The server log prints a **setup code** (also in `data/setup_code.txt`). Open `/setup`, enter the code and choose the admin password. The admin email is fixed to `oneringprotocol@gmail.com` (`G4S_ADMIN_EMAIL`). The page works only once. |
+| Create account | `/signup` (linked from the sign in page): full name, company, email, optional phone, password. The account starts as **waiting for approval** and cannot sign in. |
+| Admin email | The admin gets an email with the details and a link to `/admin?review=<id>`. |
+| Approve / reject | On `/admin` the admin ticks the vehicles the account may view, then approves or rejects. An approved user gets an email. **Remove access** signs the user out immediately. |
+| Vehicle access | The admin sees every vehicle. Other accounts see only their assigned vehicles, in every view and API. With none assigned they see a "no vehicles assigned yet" note. |
+
+Security details:
+- Passwords are salted PBKDF2 SHA256 hashes (600,000 rounds), at least 10 characters with letters and numbers or symbols.
+- Sessions are random tokens in an HttpOnly, SameSite=Lax cookie that lasts 7 days. Only their hash is stored.
+- Every POST needs the `X-G4S` header, which blocks cross-site form posts.
+- Sign in locks for 15 min after 5 failed attempts.
+- Data lives in `data/app.db` (SQLite, git ignored).
+
+**Email sending.** Set these before `./run.sh`:
+
+```bash
+export G4S_SMTP_HOST=smtp.gmail.com G4S_SMTP_PORT=465
+export G4S_SMTP_USER=sender@gmail.com G4S_SMTP_PASS='<Google app password>'
+export G4S_BASE_URL=https://audit.example.com      # used in the links inside emails
+```
+
+Without SMTP settings, emails are saved to `data/outbox/*.eml` and the server log says so. Approval still works from `/admin`.
 
 ## Data in
 

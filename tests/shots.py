@@ -1,6 +1,6 @@
 """Headless walk-through: every day, both tabs, replay; reports page errors and banned wording.
 
-Usage: python3 tests/shots.py [base_url] [out_dir]
+Usage: G4S_TEST_EMAIL=... G4S_TEST_PASSWORD=... python3 tests/shots.py [base_url] [out_dir]
 Uses Brave/Chrome if Playwright's own Chromium is not installed.
 """
 import os
@@ -29,6 +29,11 @@ with sync_playwright() as p:
         pg.on("pageerror", lambda e: errors.append("pageerror: %s" % e))
         pg.on("console", lambda m: m.type == "error" and errors.append("console: %s" % m.text))
         pg.goto(BASE + "/?d=2026-10-14")
+        if "/login" in pg.url:   # the app is behind sign in: G4S_TEST_EMAIL / G4S_TEST_PASSWORD
+            pg.fill("[name=email]", os.environ.get("G4S_TEST_EMAIL", ""))
+            pg.fill("[name=password]", os.environ.get("G4S_TEST_PASSWORD", ""))
+            pg.click("button[type=submit]")
+            pg.wait_for_url("**/?d=2026-10-14*", timeout=15000)
         pg.wait_for_selector(".trip", timeout=20000)
         pg.wait_for_timeout(2500)
         pg.screenshot(path=str(OUT / ("route_%s.png" % scheme)))

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin setup</title>
+<link rel="stylesheet" href="app.css">
+<script>try { var t = localStorage.getItem('g4s-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+</head>
+<body>
+<main class="authpage">
+  <form class="authcard" id="f" novalidate>
+    <div class="brand"><span class="vbadge">G4S</span><b>Route audit</b></div>
+    <h1>Set up the admin account</h1>
+    <p class="lead">The admin sees every vehicle and approves new accounts. This page works only once.</p>
+    <div class="msg" hidden></div>
+    <label class="field"><span>Admin email</span><input name="email" id="email" readonly></label>
+    <label class="field"><span>Setup code</span><input name="code" autocomplete="off" required>
+      <small>Printed in the server log when the app starts, and saved in data/setup_code.txt.</small></label>
+    <label class="field"><span>Password</span><input name="password" type="password" autocomplete="new-password" required minlength="10">
+      <small>At least 10 characters, with letters and numbers or symbols.</small></label>
+    <label class="field"><span>Confirm password</span><input name="confirm" type="password" autocomplete="new-password" required></label>
+    <button class="primary" type="submit">Create admin account</button>
+    <p class="alt"><a href="/login">Back to sign in</a></p>
+  </form>
+</main>
+<script src="auth.js"></script>
+<script>
+  fetch('/auth/setup-needed').then(r => r.json()).then(d => { $('#email').value = d.email; if (!d.needed) location.href = '/login'; });
+  onSubmit($('#f'), async (v, msg) => {
+    if (v.password !== v.confirm) { showMsg(msg, 'err', 'The two passwords are not the same.'); return; }
+    await post('/auth/setup', { code: v.code, password: v.password });
+    location.href = '/admin';
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in</title>
+<link rel="stylesheet" href="app.css">
+<script>try { var t = localStorage.getItem('g4s-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+</head>
+<body>
+<main class="authpage">
+  <form class="authcard" id="f" novalidate>
+    <div class="brand"><span class="vbadge">G4S</span><b>Route audit</b></div>
+    <h1>Sign in</h1>
+    <p class="lead">Use the email and password of your account.</p>
+    <div class="msg" hidden></div>
+    <label class="field"><span>Email</span><input name="email" type="email" autocomplete="username" required autofocus></label>
+    <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="primary" type="submit">Sign in</button>
+    <p class="alt">New here? <a href="/signup">Create a new account</a></p>
+    <p class="alt" id="setup" hidden>No admin yet. <a href="/setup">Set up the admin account</a></p>
+  </form>
+</main>
+<script src="auth.js"></script>
+<script>
+  const f = $('#f');
+  if (new URLSearchParams(location.search).get('created')) showMsg($('.msg', f), 'ok', 'Your account is created and waiting for admin approval. You will get an email once it is approved.');
+  fetch('/auth/setup-needed').then(r => r.json()).then(d => { $('#setup').hidden = !d.needed; }).catch(() => {});
+  onSubmit(f, async (v, msg) => {
+    try {
+      await post('/auth/login', { email: v.email, password: v.password });
+    } catch (e) {
+      // waiting for approval is not an error, so it gets the calm amber note
+      showMsg(msg, /waiting for admin approval/.test(e.message) ? 'info' : 'err', e.message);
+      return;
+    }
+    location.href = safeNext();
+  });
+</script>
+</body>
+</html>

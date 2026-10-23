@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>G4S Accounts</title>
+<link rel="stylesheet" href="app.css">
+<script>try { var t = localStorage.getItem('g4s-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+</head>
+<body>
+<header class="top">
+  <div class="hrow" style="padding-bottom:12px">
+    <div>
+      <h1>Accounts</h1>
+      <div class="sub" id="sub">Approve new accounts and choose which vehicles each account can view.</div>
+    </div>
+    <div class="hright userbox">
+      <a href="/">Open the app</a>
+      <span class="who" id="who"></span>
+      <button class="iconbtn" onclick="signOut()">Sign out</button>
+    </div>
+  </div>
+</header>
+<main class="adm" id="adm"><div class="loading">Loading data…</div></main>
+<script src="auth.js"></script>
+<script>
+const A = { users: [], vehicles: [], focus: +new URLSearchParams(location.search).get('review') || null };
+const when = t => t ? new Date(t * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–';
+
+async function load() {
+  const r = await fetch('/admin/api/users');
+  if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
+  const d = await r.json();
+  A.users = d.users; A.vehicles = d.vehicles;
+  $('#who').textContent = d.admin_email;
+  render();
+}
+
+function picker(u) {
+  const mine = new Set(u.vehicles);
+  return `<div class="vpick" data-u="${u.id}">${A.vehicles.map(v => `<label class="${mine.has(v.vehicle) ? 'on' : ''}">
+    <input type="checkbox" value="${v.vehicle}" ${mine.has(v.vehicle) ? 'checked' : ''}> ${v.vehicle} · ${esc(v.branch)}${v.has_gps ? '' : ' · no GPS yet'}</label>`).join('')}</div>`;
+}
+
+function details(u) {
+  return `<dl><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Company</dt><dd>${esc(u.company)}</dd>
+    <dt>Phone</dt><dd>${esc(u.phone || 'not given')}</dd><dt>Signed up</dt><dd>${when(u.created_at)}</dd>
+    ${u.status !== 'pending' ? `<dt>Decided</dt><dd>${when(u.decided_at)}</dd>` : ''}
+    ${u.status === 'approved' ? `<dt>Last sign in</dt><dd>${when(u.last_login)}</dd>` : ''}</dl>`;
+}
+
+function card(u) {
+  const st = { pending: '<span class="chip st-Passed">Waiting for approval</span>', approved: '<span class="chip st-Validated">✓ Approved</span>',
+    rejected: '<span class="chip st-Not">✕ Rejected</span>' }[u.status];
+  let body = '';
+  if (u.role === 'admin') body = '<p class="muted" style="margin:6px 0 0;font-size:12.5px">Admin account. Sees every vehicle.</p>';
+  else if (u.status === 'pending') body = `${details(u)}<h2>Vehicles this account can view</h2>${picker(u)}
+    <div class="msg" hidden></div><div class="btnrow" style="margin-top:10px"><button class="btn ok" data-act="approve" data-u="${u.id}">Approve</button>
+    <button class="btn no" data-act="reject" data-u="${u.id}">Reject</button></div>`;
+  else if (u.status === 'approved') body = `${details(u)}<h2>Vehicles this account can view</h2>${picker(u)}
+    <div class="msg" hidden></div><div class="btnrow" style="margin-top:10px"><button class="btn" data-act="save" data-u="${u.id}">Save vehicles</button>
+    <button class="btn no" data-act="reject" data-u="${u.id}">Remove access</button></div>`;
+  else body = `${details(u)}<div class="btnrow"><button class="btn ok" data-act="approve" data-u="${u.id}">Approve</button>
+    <button class="btn no" data-act="delete" data-u="${u.id}">Delete</button></div>`;
+  return `<div class="ucard${A.focus === u.id ? ' focus' : ''}" id="u${u.id}"><div class="uh"><b>${esc(u.name)}</b>${st}</div>${body}</div>`;
+}
+
+function section(title, list, empty) {
+  return `<section class="sec"><h2>${title} · ${list.length}</h2>${list.length ? list.map(card).join('') : `<div class="empty">${empty}</div>`}</section>`;
+}
+
+function render() {
+  const by = s => A.users.filter(u => u.status === s && u.role !== 'admin');
+  $('#adm').innerHTML = section('Waiting for approval', by('pending'), 'No accounts waiting for approval.')
+    + section('Approved', [...A.users.filter(u => u.role === 'admin'), ...by('approved')], '')
+    + section('Rejected', by('rejected'), 'No rejected accounts.');
+  $$('.vpick input').forEach(i => i.onchange = () => i.parentElement.classList.toggle('on', i.checked));
+  $$('[data-act]').forEach(b => b.onclick = () => act(b.dataset.act, +b.dataset.u, b));
+  if (A.focus) { const el = $('#u' + A.focus); if (el) el.scrollIntoView({ block: 'center' }); }
+}
+
+const picked = id => $$(`.vpick[data-u="${id}"] input:checked`).map(i => i.value);
+
+async function act(what, id, btn) {
+  const u = A.users.find(x => x.id === id), msg = $('.msg', btn.closest('.ucard'));
+  if (what === 'reject' && !confirm(u.status === 'approved' ? `Remove access for ${u.email}?` : `Reject the account of ${u.email}?`)) return;
+  if (what === 'delete' && !confirm(`Delete the account of ${u.email}?`)) return;
+  btn.disabled = true;
+  try {
+    if (what === 'approve' || what === 'save') {
+      if ($(`.vpick[data-u="${id}"]`)) await post(`/admin/api/users/${id}/vehicles`, { vehicles: picked(id) });
+    }
+    if (what === 'approve') await post(`/admin/api/users/${id}/decision`, { approve: true });
+    if (what === 'reject') await post(`/admin/api/users/${id}/decision`, { approve: false });
+    if (what === 'delete') await post(`/admin/api/users/${id}/delete`);
+    A.focus = what === 'delete' ? null : id;
+    await load();
+    const m = $(`#u${id} .msg`);
+    if (m && what !== 'reject') showMsg(m, 'ok', what === 'approve' ? 'Approved. The user can sign in now and gets an email.' : 'Saved.');
+  } catch (e) {
+    if (msg) showMsg(msg, 'err', e.message); else alert(e.message);
+    btn.disabled = false;
+  }
+}
+
+load();
+</script>
+</body>
+</html>

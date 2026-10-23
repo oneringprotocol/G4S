@@ -6,3 +6,6 @@ venv/
 .env
 data/cache/
 tests/out/
+data/app.db
+data/outbox/
+data/setup_code.txt
