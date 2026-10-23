@@ -53,16 +53,27 @@ function card(u) {
   const st = { pending: '<span class="chip st-Passed">Waiting for approval</span>', approved: '<span class="chip st-Validated">✓ Approved</span>',
     rejected: '<span class="chip st-Not">✕ Rejected</span>' }[u.status];
   let body = '';
-  if (u.role === 'admin') body = '<p class="muted" style="margin:6px 0 0;font-size:12.5px">Admin account. Sees every vehicle.</p>';
+  if (u.role === 'admin') body = `<p class="muted" style="margin:6px 0 10px;font-size:12.5px">Admin account (${esc(u.email)}). Sees every vehicle.</p>
+    <div class="msg" hidden></div><div class="btnrow"><button class="btn" data-act="pw" data-u="${u.id}">Set password</button></div>${pwForm(u)}`;
   else if (u.status === 'pending') body = `${details(u)}<h2>Vehicles this account can view</h2>${picker(u)}
     <div class="msg" hidden></div><div class="btnrow" style="margin-top:10px"><button class="btn ok" data-act="approve" data-u="${u.id}">Approve</button>
     <button class="btn no" data-act="reject" data-u="${u.id}">Reject</button></div>`;
   else if (u.status === 'approved') body = `${details(u)}<h2>Vehicles this account can view</h2>${picker(u)}
     <div class="msg" hidden></div><div class="btnrow" style="margin-top:10px"><button class="btn" data-act="save" data-u="${u.id}">Save vehicles</button>
-    <button class="btn no" data-act="reject" data-u="${u.id}">Remove access</button></div>`;
+    <button class="btn" data-act="pw" data-u="${u.id}">Set password</button>
+    <button class="btn no" data-act="reject" data-u="${u.id}">Remove access</button></div>${pwForm(u)}`;
   else body = `${details(u)}<div class="btnrow"><button class="btn ok" data-act="approve" data-u="${u.id}">Approve</button>
     <button class="btn no" data-act="delete" data-u="${u.id}">Delete</button></div>`;
   return `<div class="ucard${A.focus === u.id ? ' focus' : ''}" id="u${u.id}"><div class="uh"><b>${esc(u.name)}</b>${st}</div>${body}</div>`;
+}
+
+// passwords are changed only here, by the admin
+function pwForm(u) {
+  return `<form class="pwform" data-u="${u.id}" hidden style="margin-top:10px;max-width:360px">
+    <label class="field"><span>New password for ${esc(u.email)}</span><input name="password" type="password" autocomplete="new-password" required minlength="10">
+      <small>At least 10 characters, with letters and numbers or symbols. ${u.role === 'admin' ? 'You stay signed in here.' : 'The user is signed out everywhere.'}</small></label>
+    <label class="field"><span>Confirm new password</span><input name="confirm" type="password" autocomplete="new-password" required></label>
+    <div class="btnrow"><button class="btn ok" type="submit">Save password</button><button class="btn" type="button" data-cancel>Cancel</button></div></form>`;
 }
 
 function section(title, list, empty) {
@@ -76,6 +87,19 @@ function render() {
     + section('Rejected', by('rejected'), 'No rejected accounts.');
   $$('.vpick input').forEach(i => i.onchange = () => i.parentElement.classList.toggle('on', i.checked));
   $$('[data-act]').forEach(b => b.onclick = () => act(b.dataset.act, +b.dataset.u, b));
+  $$('.pwform').forEach(f => {
+    $('[data-cancel]', f).onclick = () => { f.hidden = true; f.reset(); };
+    f.onsubmit = async e => {
+      e.preventDefault();
+      const msg = $('.msg', f.closest('.ucard')), v = Object.fromEntries(new FormData(f));
+      if (v.password !== v.confirm) { showMsg(msg, 'err', 'The two passwords are not the same.'); return; }
+      try {
+        await post(`/admin/api/users/${f.dataset.u}/password`, { password: v.password });
+        f.hidden = true; f.reset();
+        showMsg(msg, 'ok', 'Password saved. Share it with the user privately.');
+      } catch (err) { showMsg(msg, 'err', err.message); }
+    };
+  });
   if (A.focus) { const el = $('#u' + A.focus); if (el) el.scrollIntoView({ block: 'center' }); }
 }
 
@@ -83,6 +107,7 @@ const picked = id => $$(`.vpick[data-u="${id}"] input:checked`).map(i => i.value
 
 async function act(what, id, btn) {
   const u = A.users.find(x => x.id === id), msg = $('.msg', btn.closest('.ucard'));
+  if (what === 'pw') { const f = $(`.pwform[data-u="${id}"]`); f.hidden = !f.hidden; if (!f.hidden) $('input', f).focus(); return; }
   if (what === 'reject' && !confirm(u.status === 'approved' ? `Remove access for ${u.email}?` : `Reject the account of ${u.email}?`)) return;
   if (what === 'delete' && !confirm(`Delete the account of ${u.email}?`)) return;
   btn.disabled = true;

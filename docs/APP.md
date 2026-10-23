@@ -21,6 +21,7 @@ Every page and API needs a signed-in, approved account.
 | Create account | `/signup` (linked from the sign in page): full name, company, email, optional phone, password. The account starts as **waiting for approval** and cannot sign in. |
 | Admin email | The admin gets an email with the details and a link to `/admin?review=<id>`. |
 | Approve / reject | On `/admin` the admin ticks the vehicles the account may view, then approves or rejects. An approved user gets an email. **Remove access** signs the user out immediately. |
+| Passwords | Only the admin changes passwords: **Set password** on the Accounts page, for any approved account or the admin account itself. The user is signed out everywhere (the admin keeps the current session). There is no self service reset; the sign in page tells users to ask the admin. |
 | Vehicle access | The admin sees every vehicle. Other accounts see only their assigned vehicles, in every view and API. With none assigned they see a "no vehicles assigned yet" note. |
 
 Security details:

@@ -53,6 +53,7 @@ def init():
             token_hash TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             expires INTEGER NOT NULL);
+        DROP TABLE IF EXISTS password_resets;          -- self service reset was removed
         CREATE TABLE IF NOT EXISTS user_vehicles(
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             vehicle TEXT NOT NULL,
@@ -224,6 +225,22 @@ def list_users():
     for u in users:
         u["vehicles"] = acc.get(u["id"], [])
     return users
+
+
+# ---------- password changes (admin only) ----------
+def set_password(uid, password, keep_token=None):
+    """The admin sets a new password for any account. The account is signed out
+    everywhere, except the admin session that made the change."""
+    p = password_problem(password)
+    if p:
+        raise AuthError(p)
+    u = user_by_id(uid)
+    if not u:
+        raise AuthError("Account not found.", 404)
+    with _db() as con:
+        con.execute("UPDATE users SET pw_hash=? WHERE id=?", (hash_password(password), uid))
+        con.execute("DELETE FROM sessions WHERE user_id=? AND token_hash != ?",
+                    (uid, hashlib.sha256((keep_token or "").encode()).hexdigest()))
 
 
 # ---------- vehicle access ----------

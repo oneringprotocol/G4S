@@ -297,6 +297,15 @@ def admin_vehicles(uid: int, body: dict = Body(...)):
     return {"ok": True, "vehicles": sorted(vs)}
 
 
+@app.post("/admin/api/users/{uid}/password")
+def admin_password(uid: int, request: Request, body: dict = Body(...)):
+    try:
+        auth.set_password(uid, body.get("password"), keep_token=request.cookies.get(auth.COOKIE))
+    except auth.AuthError as e:
+        return _err(e)
+    return {"ok": True}
+
+
 @app.post("/admin/api/users/{uid}/delete")
 def admin_delete(uid: int):
     try:

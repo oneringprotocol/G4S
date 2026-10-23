@@ -67,9 +67,9 @@ def _save(m):
 
 
 def _deliver(m, to):
-    if not config.SMTP_HOST:
+    if not (config.SMTP_HOST and config.SMTP_USER and config.SMTP_PASS):
         f = _save(m)
-        log.warning("SMTP not configured: email to %s saved to %s", to, f)
+        log.warning("Email is not set up (G4S_SMTP_* in .env): email to %s saved to %s", to, f)
         return
     try:
         _smtp(m)

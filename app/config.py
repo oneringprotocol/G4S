@@ -3,6 +3,16 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Settings can live in a .env file next to run.sh (KEY=value per line, git ignored).
+# Real environment variables win over the file.
+_env = ROOT / ".env"
+if _env.exists():
+    for _line in _env.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip().strip("'\""))
 SHEETS = Path(os.environ.get("G4S_SHEETS", ROOT / "sheets"))
 DATA = ROOT / "data"
 CACHE = DATA / "cache"
