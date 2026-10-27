@@ -4,8 +4,10 @@ Run:  python3 -m uvicorn app.main:app --port 8000   (from the project folder)
 Open: http://localhost:8000
 """
 import json
+import logging
+import threading
+import time
 from datetime import datetime, timedelta
-from functools import lru_cache
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
@@ -18,7 +20,9 @@ from .analysis import VehicleAnalysis
 from .geo import day_label
 from .plan import load_plan
 from .routes import planned_line
+from .totalsecure import ProviderError
 
+log = logging.getLogger("g4s")
 app = FastAPI(title="G4S fleet route audit")
 app.add_middleware(GZipMiddleware, minimum_size=2000)
 auth.init()
@@ -62,6 +66,10 @@ def _source():
     if config.GPS_SOURCE == "xlsx":
         from .sources.xlsx_source import XlsxRouteSource
         return XlsxRouteSource(config.SHEETS, config.CACHE)
+    if config.GPS_SOURCE == "totalsecure":
+        from .totalsecure import Client
+        from .sources.totalsecure_source import TotalSecureSource, window
+        return TotalSecureSource(Client(config.TS_URL, config.TS_TOKEN), config.CACHE, *window())
     raise RuntimeError("Unknown GPS source: %s" % config.GPS_SOURCE)
 
 
@@ -77,12 +85,31 @@ class State:
             if not veh:
                 continue
             pts = self.source.positions(vno, dev.start, dev.end)
+            if not pts:
+                continue
             self.analysis[vno] = VehicleAnalysis(veh, self.sites, pts, recs.get(vno, []))
+        self.loaded_at = time.time()
 
 
-@lru_cache(maxsize=1)
+REFRESH_MIN_S = 30   # spare the GPS provider: at most one refresh per 30 s
+_state = None
+_lock = threading.Lock()
+
+
 def state() -> State:
-    return State()
+    # built on first use; when the GPS provider fails nothing is kept, so the next request tries again
+    global _state
+    if _state is None:
+        with _lock:
+            if _state is None:
+                _state = State()
+    return _state
+
+
+@app.exception_handler(ProviderError)
+def provider_down(request, e):
+    log.warning("GPS provider: %s", e)
+    return JSONResponse({"detail": "GPS provider unavailable: %s" % e}, 503)
 
 
 def _analysis(vno, request):
@@ -117,10 +144,21 @@ def meta(request: Request):
                          "device": dev.name})
         out.append(item)
     out.sort(key=lambda x: (not x["has_gps"], x["vehicle"]))
-    return {"vehicles": out, "source": st.source.name,
+    return {"vehicles": out, "source": st.source.name, "loaded_at": int(st.loaded_at),
             "rules": {k: getattr(config, k) for k in (
                 "STOP_SPEED_KMH", "STOP_MIN_S", "GEOFENCE_M", "ACCOMMODATION_M", "OUTSIDE_STOP_MIN_S",
                 "SPEED_LIMIT_KMH", "IDLE_MIN_S", "MATCH_WINDOW_MIN", "ON_TIME_MIN")}}
+
+
+@app.post("/api/refresh")
+def refresh():
+    """Reload GPS (provider API or xlsx) and redo the analysis. Pages keep the old data
+    until the new data is ready; if loading fails the old data stays."""
+    global _state
+    with _lock:
+        if _state is None or time.time() - _state.loaded_at >= REFRESH_MIN_S:
+            _state = State()
+        return {"loaded_at": int(_state.loaded_at)}
 
 
 @app.get("/api/sites")

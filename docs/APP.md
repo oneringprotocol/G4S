@@ -47,33 +47,71 @@ Without SMTP settings, emails are saved to `data/outbox/*.eml` and the server lo
 |---|---|---|
 | G4S route plan | `sheets/Sample G4S Vehicle Schedule.xlsx`, tab `Sheet1` | vehicles, drivers, trips, times, staff counts |
 | Geofence Directory | same file, tab `Geofence Directory` | site names and coordinates (300 m, accommodation 400 m) |
-| GPS | `sheets/Route_*.xlsx` (tracker "Route" report, UTC) | actual positions, speed, ignition, odometer |
+| GPS | `sheets/Route_*.xlsx` (tracker "Route" report, UTC), or the Total Secure API (see below) | actual positions, speed, ignition, odometer |
 | Plan names to sites | `data/plan_aliases.json` | group names such as "UTICO" mapped to directory sites |
 | Directory fixes | `data/site_overrides.json` | README section 6 fixes |
 | Maintenance records | `data/records.json` | replacement days (currently empty) |
 
-To add GPS for another vehicle, drop another `Route_<vehicle>_*.xlsx` in `sheets/` and restart. It is picked up automatically, and the vehicle dropdown enables it.
+With the xlsx source, to add GPS for another vehicle drop another `Route_<vehicle>_*.xlsx` in `sheets/` and restart. It is picked up automatically, and the vehicle dropdown enables it.
 
-## GPS provider integration
+## GPS provider integration (Total Secure)
 
-All GPS goes through `app/sources/base.py` (`GpsSource.devices()`, `GpsSource.positions(vehicle, start, end)`). The xlsx reader is one implementation. To connect the provider:
+All GPS goes through `app/sources/base.py` (`GpsSource.devices()`, `GpsSource.positions(vehicle, start, end)`), so the analysis and UI do not know where points come from. Two sources exist, picked by `G4S_GPS_SOURCE`:
 
-1. Add `app/sources/<provider>_source.py` that returns the same `GpsPoint` list. The export looks like a Traccar route report, so a Traccar source would call `/api/devices` and `/api/reports/route`.
-2. Select it in `app/main.py::_source()` and set `G4S_GPS_SOURCE=<provider>`.
+| `G4S_GPS_SOURCE` | Reads | Module |
+|---|---|---|
+| `xlsx` (default) | `sheets/Route_*.xlsx` exports | `app/sources/xlsx_source.py` |
+| `totalsecure` | Total Secure platform API, `GET /api/reports/route` | `app/sources/totalsecure_source.py` |
 
-Nothing in the analysis or UI changes.
+The platform runs Traccar; its API reference is in `total secure api/openapi.yaml`. The xlsx export is the same Route report saved as a file, so both sources give identical points (checked on vehicle 15590, 11 to 17 Oct: same 91,116 points, same analysis). The API gives speed in knots; the app converts to km/h.
+
+### Set up
+
+1. Make an API token. Run this in your own terminal, not in a shared one or a chat:
+   ```sh
+   python3 -m app.totalsecure token          # --days 90 by default
+   ```
+   It asks for the platform email and password, keeps them only in memory, signs out again, and prints a `G4S_TS_TOKEN=...` line.
+2. Put that line in `.env` with `G4S_GPS_SOURCE=totalsecure`, then `chmod 600 .env`.
+3. Check it: `python3 -m app.totalsecure check` lists the plan vehicles next to the platform device each one matched (the device name starts with the fleet number, e.g. `15590 - DF - SHJ/Rak`).
+4. Restart the app.
+
+Settings (`.env`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `G4S_TS_TOKEN` | empty | API token from step 1 |
+| `G4S_TS_URL` | `https://tracking.totalsecureme.com/api` | platform API address |
+| `G4S_TS_DAYS` | 7 | load today plus this many UAE days before it |
+| `G4S_TS_FROM`, `G4S_TS_TO` | empty | a fixed span of UAE days instead (`YYYY-MM-DD`, both included) |
+
+Data loads on the first page view after a start. To get newer GPS, any signed in user can press **↻ Refresh** in the header (`POST /api/refresh`): it fetches again (with the xlsx source it re-reads `sheets/`), redoes the analysis and reloads the page on the same vehicle and day. Its tooltip shows when the data was loaded. Pages keep showing the earlier data until the new data is ready; if the provider fails, the earlier data stays and the page says why. Refreshes closer than 30 s apart reuse the data just loaded, which spares the provider. Finished days come from the cache, so a refresh fetches only the current day.
+
+### Security
+
+- The app keeps only the token, never the password. Make it from a read-only platform account if Total Secure offers one; `token` warns when the account can change data.
+- The token lives only in `.env` (git ignored). It is sent only in the `Authorization` header over https, never in a URL, log line or error message. Plain http is refused except to localhost, and redirects are refused so the token cannot be forwarded to another host.
+- Every request has a 30 s timeout and up to 2 retries on network errors or 5xx answers.
+- Finished days are cached in `data/cache/totalsecure/` (git ignored, readable only by the account running the app). Today is fetched again on each load.
+- If the token is wrong, expired or the platform is down, pages show "GPS provider unavailable" with the reason, and the next request tries again. The app never falls back to old xlsx data silently.
+- Tokens expire after the `--days` given. To stop one early, change the platform password or revoke it in the platform.
+
+### Adding more Total Secure data
+
+`app/totalsecure.py` holds the client (auth, https, retries, safe errors) and is shared by every feed. Driver behaviour reports (for example `/reports/events`, `/drivers`) get their own module calling `Client.get()`, next to the GPS source, without touching it. The live WebSocket feed needs a session cookie rather than the token; `GET /api/session?token=...` returns one.
 
 ## Layout
 
 ```
 app/
-  main.py          API + static files     /api/meta  /api/sites  /api/vehicles/{v}/days/{day}  /api/mileage
-  config.py        paths and analysis rules
+  main.py          API + static files     /api/meta  /api/sites  /api/vehicles/{v}/days/{day}  /api/mileage  /api/refresh
+  config.py        paths, analysis rules, Total Secure settings
+  totalsecure.py   Total Secure API client; `python3 -m app.totalsecure token|check`
   plan.py          Sheet1 + Geofence Directory parser
   gapfill.py       fills GPS gaps with an estimated track before the analysis runs
   analysis.py      stops, runs, trip matching, stop status, km, outside stops, speeding, idling, replay events
   routes.py        planned route lines and estimated gap paths (OSRM road geometry, cached; straight lines offline)
-  sources/         GPS sources (xlsx now, provider later)
+  sources/         GPS sources: xlsx_source.py (exports), totalsecure_source.py (API)
 web/               index.html, app.css, app.js, vendor/leaflet
 data/              aliases, overrides, records, cache/
 tests/shots.py     Playwright check: no page errors, no banned wording, no horizontal scroll at phone width

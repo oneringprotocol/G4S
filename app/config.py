@@ -22,8 +22,14 @@ PLAN_XLSX = SHEETS / "Sample G4S Vehicle Schedule.xlsx"
 PLAN_TAB = "Sheet1"
 GEOFENCE_TAB = "Geofence Directory"
 
-# GPS source: "xlsx" reads sheets/Route_*.xlsx. A provider API source plugs in here later.
+# GPS source: "xlsx" reads sheets/Route_*.xlsx, "totalsecure" calls the Total Secure API.
 GPS_SOURCE = os.environ.get("G4S_GPS_SOURCE", "xlsx")
+# Total Secure. The token is made with `python3 -m app.totalsecure token` and lives only in .env.
+TS_URL = os.environ.get("G4S_TS_URL", "https://tracking.totalsecureme.com/api")
+TS_TOKEN = os.environ.get("G4S_TS_TOKEN", "")
+TS_DAYS = int(os.environ.get("G4S_TS_DAYS", "7"))   # load today plus this many UAE days before it ...
+TS_FROM = os.environ.get("G4S_TS_FROM", "")         # ... or a fixed span of UAE days, YYYY-MM-DD,
+TS_TO = os.environ.get("G4S_TS_TO", "")             # both ends included
 
 # Accounts and email. SMTP settings come from the environment (see docs/APP.md);
 # without them, emails are written to data/outbox/ instead of being sent.
