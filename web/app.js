@@ -130,7 +130,8 @@ async function boot() {
     return;
   }
   S.vehicle = v.vehicle;
-  S.day = (v.days.find(d => d.day === q.get('d')) || v.days[v.days.length - 1]).day;  // opens on the latest day
+  const days = pickable(v);
+  S.day = days.includes(q.get('d')) ? q.get('d') : days[days.length - 1];  // opens on the latest date
   fillVehicleSelect();
   initMap();
   wireRoute();
@@ -147,10 +148,83 @@ function fillVehicleSelect() {
   $('#vsel').value = S.vehicle;
 }
 
-function fillDaySelect() {
-  const v = vmeta();
-  $('#daysel').innerHTML = v.days.map(d => `<option value="${d.day}">${d.label}</option>`).join('');
-  $('#daysel').value = S.day;
+/* ---------- date picker: this month and last month only ---------- */
+const CAL = { month: null };   // 'YYYY-MM' shown in the calendar
+const isoDay = d => d.toISOString().slice(0, 10);
+const dayDate = k => new Date(k + 'T00:00:00Z');
+function todayKey() { const n = new Date(); return isoDay(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()))); }
+function calRange() {
+  const t = dayDate(todayKey());
+  return { from: isoDay(new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 1, 1))), to: todayKey() };
+}
+function pickable(v = vmeta()) {   // dates with GPS that the calendar allows, oldest first
+  const r = calRange();
+  return v.days.map(d => d.day).filter(k => k >= r.from && k <= r.to);
+}
+const dayLabel = k => (vmeta().days.find(d => d.day === k) || {}).label || k;
+const CAL_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="11.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 6.5h13M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.4"/></svg>';
+
+function fillDatePicker() {
+  const days = pickable(), i = days.indexOf(S.day);
+  $('#d-btn').innerHTML = CAL_ICON + (S.day ? esc(dayLabel(S.day)) : 'Choose a date');
+  $('#d-prev').disabled = i <= 0;
+  $('#d-next').disabled = i < 0 || i === days.length - 1;
+  $('#d-prev').title = i > 0 ? 'Previous day: ' + dayLabel(days[i - 1]) : 'No earlier date with GPS';
+  $('#d-next').title = i >= 0 && i < days.length - 1 ? 'Next day: ' + dayLabel(days[i + 1]) : 'No later date with GPS';
+}
+
+function renderCal() {
+  const r = calRange(), has = new Set(pickable()), today = todayKey();
+  const first = dayDate(CAL.month + '-01');
+  const n = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  const cells = Array(first.getUTCDay()).fill('<span></span>');   // weeks start on Sunday
+  for (let d = 1; d <= n; d++) {
+    const k = CAL.month + '-' + String(d).padStart(2, '0'), ok = has.has(k);
+    const long = dayDate(k).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+    cells.push(`<button class="cd${k === S.day ? ' on' : ''}${k === today ? ' today' : ''}" data-d="${k}" ${ok ? '' : 'disabled'}
+      aria-label="${long}${ok ? '' : ', no GPS'}"${k === S.day ? ' aria-current="date"' : ''}>${d}</button>`);
+  }
+  $('#cal').innerHTML = `
+    <div class="calh">
+      <button class="dnav" data-m="-1" aria-label="Previous month" ${CAL.month <= r.from.slice(0, 7) ? 'disabled' : ''}>‹</button>
+      <b>${first.toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</b>
+      <button class="dnav" data-m="1" aria-label="Next month" ${CAL.month >= r.to.slice(0, 7) ? 'disabled' : ''}>›</button>
+    </div>
+    <div class="calg">${['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(w => `<span class="wd">${w}</span>`).join('')}${cells.join('')}</div>
+    <div class="caln">Dates with GPS in this month and last month.</div>`;
+}
+
+function openCal() {
+  CAL.month = (S.day || todayKey()).slice(0, 7);
+  renderCal();
+  $('#cal').classList.remove('hidden');
+  $('#d-btn').setAttribute('aria-expanded', 'true');
+  ($('#cal .cd.on') || $('#cal .cd:not(:disabled)') || $('#cal .dnav')).focus();
+}
+function closeCal(focusBtn) {
+  if ($('#cal').classList.contains('hidden')) return;
+  $('#cal').classList.add('hidden');
+  $('#d-btn').setAttribute('aria-expanded', 'false');
+  if (focusBtn) $('#d-btn').focus();
+}
+async function goDay(k) { closeCal(); if (k && k !== S.day) { S.day = k; await loadDay(); } }
+
+function wireDatePicker() {
+  $('#d-btn').onclick = () => $('#cal').classList.contains('hidden') ? openCal() : closeCal();
+  $('#d-prev').onclick = () => { const d = pickable(); goDay(d[d.indexOf(S.day) - 1]); };
+  $('#d-next').onclick = () => { const d = pickable(); goDay(d[d.indexOf(S.day) + 1]); };
+  $('#cal').onclick = e => {
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    if (b.dataset.d) { goDay(b.dataset.d); return; }
+    const [y, m] = CAL.month.split('-').map(Number);
+    CAL.month = isoDay(new Date(Date.UTC(y, m - 1 + Number(b.dataset.m), 1))).slice(0, 7);
+    renderCal();
+    $(`#cal .dnav[data-m="${b.dataset.m}"]`).focus();
+  };
+  $('#datepick').addEventListener('keydown', e => { if (e.key === 'Escape') closeCal(true); });
+  // composedPath, not closest: a month change replaces the clicked button before this runs
+  document.addEventListener('click', e => { if (!e.composedPath().includes($('#datepick'))) closeCal(); });
 }
 
 function setHeader() {
@@ -190,10 +264,11 @@ function wireRoute() {
   $('#vsel').onchange = async e => {
     S.vehicle = e.target.value;
     const v = vmeta();
-    if (!v.days.some(d => d.day === S.day)) S.day = v.days[v.days.length - 1].day;  // keep the day when possible
+    const days = pickable(v);
+    if (!days.includes(S.day)) S.day = days[days.length - 1];  // keep the date when possible
     await loadDay();
   };
-  $('#daysel').onchange = async e => { S.day = e.target.value; await loadDay(); };
+  wireDatePicker();
   $('#m-plan').onclick = () => setMode('plan');
   $('#m-replay').onclick = () => setMode('replay');
   $('#z-in').onclick = () => map.zoomIn();
@@ -202,7 +277,12 @@ function wireRoute() {
 }
 
 async function loadDay(after) {
-  fillDaySelect();
+  fillDatePicker();
+  if (!S.day) {
+    $('#side').innerHTML = '<div class="empty">This vehicle has no GPS in this month or last month.</div>';
+    $('#kpis').innerHTML = '';
+    return;
+  }
   $('#side').innerHTML = '<div class="empty">Loading data…</div>';
   S.selTrip = null; S.panel = null; S.pin = null;
   try {
@@ -227,7 +307,7 @@ const tripColor = t => css('--plan' + (S.groupColor[t.group] || 1));
 function renderOps() {
   const r = S.data.record;
   $('#opsrc').textContent = r ? '' : 'Records: no maintenance or replacement on this day';
-  $('#daysel').classList.toggle('wk', !!(r && r.replaced_by));
+  $('#d-btn').classList.toggle('wk', !!(r && r.replaced_by));
   $('#opsnote').innerHTML = r
     ? `<div class="opsnote ${r.replaced_by ? 'wk' : 'rt'}">🔧 ${r.replaced_by ? 'In the workshop' : 'Back from the workshop'}${r.note ? ' (' + esc(r.note) + ')' : ''}${r.replaced_by ? ', replaced by ' + esc(r.replaced_by) : ''}.</div>`
     : '';

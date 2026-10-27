@@ -18,6 +18,15 @@ BROWSERS = ["/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
 
 errors = []
+
+
+def pick_date(pg, day):
+    """Open the Date calendar, go to the month of `day` and click it."""
+    pg.click("#d-btn")
+    while pg.get_attribute("#cal [data-d]", "data-d")[:7] != day[:7]:
+        pg.click("#cal .dnav[data-m='%d']" % (1 if pg.get_attribute("#cal [data-d]", "data-d")[:7] < day[:7] else -1))
+    pg.click("#cal [data-d='%s']" % day)
+
 with sync_playwright() as p:
     exe = next((b for b in BROWSERS if os.path.exists(b)), None)
     try:
@@ -39,15 +48,15 @@ with sync_playwright() as p:
         pg.screenshot(path=str(OUT / ("route_%s.png" % scheme)))
         if scheme == "dark":
             continue
-        days = pg.eval_on_selector_all("#daysel option", "o => o.map(x => x.value)")
+        days = pg.evaluate("pickable()")
         for d in days:
-            pg.select_option("#daysel", d)
+            pick_date(pg, d)
             pg.wait_for_function("d => window.location.search.includes(d)", arg=d)
             pg.wait_for_selector(".trip")
             txt = pg.inner_text("body")
             for m in BANNED.finditer(txt):
                 errors.append("wording on %s: ...%s..." % (d, txt[max(m.start() - 30, 0):m.end() + 30].replace("\n", " ")))
-        pg.select_option("#daysel", "2026-10-14")
+        pick_date(pg, "2026-10-14")
         pg.wait_for_timeout(800)
         pg.click(".kpi.oz")
         pg.wait_for_timeout(1500)

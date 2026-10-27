@@ -37,7 +37,13 @@
       <button class="sbtn on" id="m-plan">Planned vs actual</button>
       <button class="sbtn" id="m-replay">▶ Replay</button>
     </div>
-    <label class="dd">Day <select id="daysel" aria-label="Day"></select></label>
+    <div class="dd datepick" id="datepick">
+      <span id="date-lbl">Date</span>
+      <button class="dnav" id="d-prev" aria-label="Previous day">‹</button>
+      <button class="dbtn" id="d-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="cal"></button>
+      <button class="dnav" id="d-next" aria-label="Next day">›</button>
+      <div class="cal hidden" id="cal" role="dialog" aria-label="Choose a date"></div>
+    </div>
     <span class="opsrc" id="opsrc"></span>
   </div>
   <div id="opsnote"></div>

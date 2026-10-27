@@ -98,6 +98,25 @@ header.top{background:var(--surface);border-bottom:1px solid var(--line);padding
 .dd select:focus-visible,.kmbtn:focus-visible,.sbtn:focus-visible,.tab:focus-visible{outline:2px solid var(--x2-svc);outline-offset:1px}
 .dd select.wk{border:1.5px dashed var(--crit)}
 .dd select.rt{border:1.5px dashed var(--serious)}
+.datepick{position:relative}
+.dnav{border:1px solid var(--line);background:var(--surface);border-radius:8px;min-width:30px;height:32px;font-size:17px;line-height:1;color:var(--ink-2)}
+.dnav:not(:disabled):hover{background:var(--surface-2)}
+.dnav:disabled{opacity:.35;cursor:default}
+.dbtn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--surface);border-radius:10px;height:32px;padding:0 12px;font-size:13.5px;font-weight:650;color:var(--ink);white-space:nowrap}
+.dbtn svg{color:var(--ink-3)}
+.dbtn:hover{background:var(--surface-2)}
+.dbtn.wk{border:1.5px dashed var(--crit)}
+.dnav:focus-visible,.dbtn:focus-visible,.cal .cd:focus-visible{outline:2px solid var(--x2-svc);outline-offset:1px}
+.cal{position:absolute;top:calc(100% + 6px);left:0;z-index:1100;width:264px;padding:10px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.18);color:var(--ink)}
+.calh{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:13.5px}
+.calg{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.calg .wd{font-size:10.5px;font-weight:600;color:var(--ink-3);padding:4px 0}
+.cal .cd{height:32px;border:0;border-radius:8px;background:none;font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}
+.cal .cd:not(:disabled):hover{background:var(--surface-2)}
+.cal .cd:disabled{color:var(--ink-3);opacity:.45;cursor:default}
+.cal .cd.today{box-shadow:inset 0 0 0 1px var(--ink-3)}
+.cal .cd.on{background:var(--navy);color:var(--surface);font-weight:700}
+.caln{margin-top:6px;font-size:11px;color:var(--ink-3)}
 
 /* ---------- route check layout ---------- */
 .daybar{display:flex;align-items:center;gap:12px;padding:10px 18px;flex-wrap:wrap}

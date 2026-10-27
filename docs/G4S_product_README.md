@@ -53,7 +53,8 @@ The processed data (`*/v2/out/all_data*.json`) is included. To make UI or wordin
 **Header:** vehicle, driver, type (DF = Dongfeng), branch, accommodation, GPS date range. The combined file also has a Month dropdown, which reloads the page with `?m=sep` or `?m=oct`. October is the default.
 
 **Tab: Route check**
-- A *Planned vs actual* / *▶ Replay* toggle, a Day dropdown and a Vehicle dropdown.
+- A *Planned vs actual* / *▶ Replay* toggle, a Date picker and a Vehicle dropdown.
+- Date picker: ‹ and › step to the previous or next date with GPS; the date button opens a calendar of the current month and the previous month only (‹ › inside switch between the two). Dates without GPS and future dates are greyed out. Escape or a click outside closes it.
 - **Tiles:**
   - planned stops validated;
   - actual km (GPS);
