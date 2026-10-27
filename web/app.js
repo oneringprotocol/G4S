@@ -12,15 +12,14 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
 };
+const errorOf = async r => {
+  const t = await r.text();
+  try { return new Error(JSON.parse(t).detail || t); } catch (e) { return new Error(t || r.statusText); }
+};
 const api = async p => {
   const r = await fetch(p);
   if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error('Sign in to continue.'); }
-  if (!r.ok) {
-    const t = await r.text();
-    let msg = t;
-    try { msg = JSON.parse(t).detail || t; } catch (e) { /* plain text */ }
-    throw new Error(msg || r.statusText);
-  }
+  if (!r.ok) throw await errorOf(r);
   return r.json();
 };
 async function signOut() {
@@ -77,9 +76,26 @@ function syncUrl() {
   history.replaceState(null, '', '?' + q);
 }
 
+/* ---------- refresh ---------- */
+async function refreshGps() {
+  const b = $('#refresh');
+  b.disabled = true;
+  b.textContent = '↻ Refreshing…';
+  try {
+    const r = await fetch('/api/refresh', { method: 'POST', headers: { 'X-G4S': '1' } });
+    if (!r.ok) throw await errorOf(r);
+    location.reload();
+  } catch (e) {
+    b.disabled = false;
+    b.textContent = '↻ Refresh';
+    $('#subtitle').textContent = 'Refresh failed, showing the earlier data. ' + e.message;
+  }
+}
+
 /* ---------- boot ---------- */
 async function boot() {
   applyTheme(store.get('g4s-theme', 'auto'));
+  $('#refresh').onclick = refreshGps;
   try {
     [S.me, S.meta, S.sites] = await Promise.all([api('/api/me'), api('/api/meta'), api('/api/sites')]);
   } catch (e) {
@@ -89,6 +105,14 @@ async function boot() {
   $('#userbox').innerHTML = `${S.me.role === 'admin' ? '<a href="/admin">Accounts</a>' : ''}<span class="who" title="${esc(S.me.email)}">${esc(S.me.email)}</span>
     <button class="iconbtn" id="signout">Sign out</button>`;
   $('#signout').onclick = signOut;
+  const loaded = 'Loaded at ' + new Date(S.meta.loaded_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  $('#refresh').title = 'Fetch the latest GPS. ' + loaded;
+  const live = S.meta.source === 'totalsecure';
+  const src = $('#source');
+  src.textContent = live ? '● Live Feed' : 'Spreadsheet';
+  src.className = 'chip src' + (live ? ' live' : '');
+  src.title = (live ? 'GPS from the Total Secure platform. ' : 'GPS from the Route export in the sheets folder. ') + loaded;
+  src.hidden = false;
   S.siteById = Object.fromEntries(S.sites.map(s => [s.id, s]));
   const q = new URLSearchParams(location.search);
   const withGps = S.meta.vehicles.filter(v => v.has_gps);
@@ -96,7 +120,7 @@ async function boot() {
   if (!v) {
     $('#title').textContent = 'Route audit';
     $('#subtitle').textContent = S.me.role === 'admin'
-      ? 'No GPS data found. Add a GPS export to the sheets folder.'
+      ? (S.meta.source === 'totalsecure' ? 'No GPS data found on Total Secure for the planned vehicles in this period.' : 'No GPS data found. Add a GPS export to the sheets folder.')
       : S.meta.vehicles.length ? 'Your vehicles have no GPS data yet.' : 'No vehicles are assigned to your account yet. The admin will add them.';
     $$('.tabs,#view-route,#view-mileage').forEach(el => el.classList.add('hidden'));
     return;

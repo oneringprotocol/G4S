@@ -85,7 +85,7 @@ Settings (`.env`):
 | `G4S_TS_DAYS` | 7 | load today plus this many UAE days before it |
 | `G4S_TS_FROM`, `G4S_TS_TO` | empty | a fixed span of UAE days instead (`YYYY-MM-DD`, both included) |
 
-Data loads on the first page view after a start. To get newer GPS, any signed in user can press **↻ Refresh** in the header (`POST /api/refresh`): it fetches again (with the xlsx source it re-reads `sheets/`), redoes the analysis and reloads the page on the same vehicle and day. Its tooltip shows when the data was loaded. Pages keep showing the earlier data until the new data is ready; if the provider fails, the earlier data stays and the page says why. Refreshes closer than 30 s apart reuse the data just loaded, which spares the provider. Finished days come from the cache, so a refresh fetches only the current day.
+Data loads on the first page view after a start. To get newer GPS, any signed in user can press **↻ Refresh** in the header (`POST /api/refresh`): it fetches again (with the xlsx source it re-reads `sheets/`), redoes the analysis and reloads the page on the same vehicle and day. Its tooltip shows when the data was loaded. A chip next to the page title shows the source: green **● Live Feed** for Total Secure, grey **Spreadsheet** for the xlsx export (hover for the load time). Pages keep showing the earlier data until the new data is ready; if the provider fails, the earlier data stays and the page says why. Refreshes closer than 30 s apart reuse the data just loaded, which spares the provider. Finished days come from the cache, so a refresh fetches only the current day.
 
 ### Security
 
