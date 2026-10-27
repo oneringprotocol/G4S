@@ -55,18 +55,6 @@
         <span class="drv" id="vdrv"></span>
       </div>
       <div class="kpis" id="kpis"></div>
-      <div class="rpbar hidden" id="rpbar">
-        <button class="play" id="rp-play">▶ Play</button>
-        <span class="clock" id="rp-clock">00:00</span>
-        <label>Speed <span class="seg" id="rp-speed"></span></label>
-        <label><input type="checkbox" id="rp-follow" checked> Follow bus</label>
-        <label><input type="checkbox" id="rp-explain" checked> Explain movement (one pop up at a time)</label>
-        <div class="scrub">
-          <input type="range" id="rp-scrub" min="0" max="1" step="1" aria-label="Replay time">
-          <div class="band" id="rp-band"></div>
-          <div class="ticks" id="rp-ticks"></div>
-        </div>
-      </div>
       <div class="mapwrap">
         <div id="map"></div>
         <div class="mapctl">
@@ -77,6 +65,18 @@
         <div class="legend" id="legend"></div>
         <div id="ozpanel"></div>
         <div class="narr hidden" id="narr"></div>
+      </div>
+      <div class="rpbar hidden" id="rpbar">
+        <button class="play" id="rp-play">▶ Play</button>
+        <span class="clock" id="rp-clock">00:00</span>
+        <label>Speed <span class="seg" id="rp-speed"></span></label>
+        <label><input type="checkbox" id="rp-follow" checked> Follow bus</label>
+        <label><input type="checkbox" id="rp-explain" checked> Explain movement</label>
+        <div class="scrub">
+          <input type="range" id="rp-scrub" min="0" max="1" step="1" aria-label="Replay time">
+          <div class="band" id="rp-band"></div>
+          <div class="ticks" id="rp-ticks"></div>
+        </div>
       </div>
     </section>
     <aside class="side" id="side"></aside>

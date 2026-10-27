@@ -54,6 +54,7 @@ The processed data (`*/v2/out/all_data*.json`) is included. To make UI or wordin
 
 **Tab: Route check**
 - A *Planned vs actual* / *▶ Replay* toggle, a Date picker and a Vehicle dropdown.
+- In Replay, the player bar (Play, clock, speed, Follow bus, Explain movement, timeline) sits under the map.
 - Date picker: ‹ and › step to the previous or next date with GPS; the date button opens a calendar of the current month and the previous month only (‹ › inside switch between the two). Future dates are greyed out. With the Live Feed (Total Secure) every past date in the two months can be picked: a date that is not loaded yet is fetched from Total Secure when picked (a few seconds), and a date without GPS says so. With the spreadsheet source only dates in the export can be picked. Escape or a click outside closes it.
 - **Tiles:**
   - planned stops validated;
