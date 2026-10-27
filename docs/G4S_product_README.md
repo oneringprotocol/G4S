@@ -72,6 +72,12 @@ The processed data (`*/v2/out/all_data*.json`) is included. To make UI or wordin
 - Planned (pastel green) and unplanned (pastel orange) stacked km bars by Daily / Weekly / Monthly.
 - Unplanned trips table, speeding table and stops outside geofences. The stops table has a validation column per row, saved in the browser, and a CSV download.
 
+**Tab: Fleet** (Live Feed only)
+- Every GPS device on Total Secure, not only the G4S plan vehicles, at its latest position: a map (green online, grey offline, amber unknown) and a list sorted online first.
+- Search by fleet number, name or type; filter by All / Online / Offline / Unknown with counts.
+- A device shows its status, last update, speed and engine state. Plan vehicles carry a *G4S plan* tag and an *Open in Route check* link; other devices say they are not in the route plan.
+- ↻ Refresh fetches the positions again; the server asks Total Secure at most every 30 s.
+
 **Tab: Unplanned trips** (removed from the client versions): a list of each unplanned departure with its map.
 
 **Vehicles:**

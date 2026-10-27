@@ -28,6 +28,7 @@
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-route" aria-selected="true" aria-controls="view-route">Route check</button>
     <button class="tab" role="tab" id="tab-mileage" aria-selected="false" aria-controls="view-mileage">Mileage &amp; excess use</button>
+    <button class="tab hidden" role="tab" id="tab-fleet" aria-selected="false" aria-controls="view-fleet">Fleet</button>
   </nav>
 </header>
 
@@ -85,6 +86,18 @@
 
 <main id="view-mileage" class="hidden" role="tabpanel" aria-labelledby="tab-mileage">
   <div class="mx" id="mx"></div>
+</main>
+
+<main id="view-fleet" class="hidden" role="tabpanel" aria-labelledby="tab-fleet">
+  <div class="fleet">
+    <div class="fmapwrap"><div id="fmap"></div></div>
+    <aside class="flist">
+      <input type="search" id="f-q" placeholder="Search by number, name or type" aria-label="Search devices">
+      <div class="seg" role="group" aria-label="Status" id="f-st"></div>
+      <div class="fcount" id="f-count"></div>
+      <div class="frows" id="f-rows"></div>
+    </aside>
+  </div>
 </main>
 
 <script src="vendor/leaflet.js"></script>

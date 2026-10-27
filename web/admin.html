@@ -39,7 +39,7 @@ async function load() {
 function picker(u) {
   const mine = new Set(u.vehicles);
   return `<div class="vpick" data-u="${u.id}">${A.vehicles.map(v => `<label class="${mine.has(v.vehicle) ? 'on' : ''}">
-    <input type="checkbox" value="${v.vehicle}" ${mine.has(v.vehicle) ? 'checked' : ''}> ${v.vehicle} · ${esc(v.branch)}${v.has_gps ? '' : ' · no GPS yet'}</label>`).join('')}</div>`;
+    <input type="checkbox" value="${v.vehicle}" ${mine.has(v.vehicle) ? 'checked' : ''}> ${v.vehicle} · ${esc(v.branch)}${v.in_plan === false ? ' · Fleet tab only' : v.has_gps ? '' : ' · no GPS yet'}</label>`).join('')}</div>`;
 }
 
 function details(u) {

@@ -11,6 +11,8 @@ on every load.
 import json
 import logging
 import os
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,6 +27,7 @@ KNOTS_KMH = 1.852
 DAY = timedelta(days=1)
 SETTLE = timedelta(hours=1)   # late points still arrive for a while after a day ends
 WORKERS = 4
+FLEET_TTL_S = 30              # the fleet view asks the platform at most every 30 s
 
 
 def window(now=None):
@@ -68,6 +71,7 @@ class TotalSecureSource(GpsSource):
         self.cache = Path(cache) / "totalsecure"
         self.cache.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._ids = {}   # fleet number -> (device id, device name)
+        self._fleet, self._fleet_at, self._fleet_lock = None, 0, threading.Lock()
         for d in client.devices():
             name = str(d.get("name") or "")
             vehicle = name.split(" ")[0]
@@ -77,6 +81,35 @@ class TotalSecureSource(GpsSource):
                 log.warning("Two Total Secure devices for vehicle %s; using %s", vehicle, self._ids[vehicle][1])
                 continue
             self._ids[vehicle] = (d["id"], name)
+
+    def fleet(self):
+        """Every device on the platform with its latest position, for the Fleet tab. Only the
+        fields the page shows: no tracker IMEI, phone or contact details."""
+        with self._fleet_lock:
+            if self._fleet is None or time.time() - self._fleet_at >= FLEET_TTL_S:
+                pos = {p.get("deviceId"): p for p in self.client.get("/positions")}
+                rows = []
+                for d in self.client.devices():
+                    if d.get("disabled"):
+                        continue
+                    name = str(d.get("name") or "")
+                    p = pos.get(d.get("id")) or {}
+                    a = p.get("attributes") or {}
+                    rows.append({
+                        "id": d.get("id"),
+                        "vehicle": name.split(" ")[0] or str(d.get("id")),
+                        "name": name,
+                        "category": d.get("category"),
+                        "status": d.get("status") if d.get("status") in ("online", "offline") else "unknown",
+                        "last": _ts(d["lastUpdate"]) if d.get("lastUpdate") else None,
+                        "lat": p.get("latitude"), "lon": p.get("longitude"),
+                        "speed": round(float(p.get("speed") or 0) * KNOTS_KMH, 1) if p else None,
+                        "course": p.get("course"),
+                        "fix": _ts(p["fixTime"]) if p.get("fixTime") else None,
+                        "ignition": a.get("ignition"),
+                    })
+                self._fleet, self._fleet_at = rows, time.time()
+            return self._fleet
 
     def devices(self) -> List[DeviceInfo]:
         return [DeviceInfo(v, n, self.start, self.end) for v, (_, n) in sorted(self._ids.items())]

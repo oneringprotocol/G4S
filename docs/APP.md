@@ -22,7 +22,7 @@ Every page and API needs a signed-in, approved account.
 | Admin email | The admin gets an email with the details and a link to `/admin?review=<id>`. |
 | Approve / reject | On `/admin` the admin ticks the vehicles the account may view, then approves or rejects. An approved user gets an email. **Remove access** signs the user out immediately. |
 | Passwords | Only the admin changes passwords: **Set password** on the Accounts page, for any approved account or the admin account itself. The user is signed out everywhere (the admin keeps the current session). There is no self service reset; the sign in page tells users to ask the admin. |
-| Vehicle access | The admin sees every vehicle. Other accounts see only their assigned vehicles, in every view and API. With none assigned they see a "no vehicles assigned yet" note. |
+| Vehicle access | The admin sees every vehicle. Other accounts see only their assigned vehicles, in every view and API. With none assigned they see a "no vehicles assigned yet" note. With the Total Secure source the admin can also assign any platform device outside the plan (marked "Fleet tab only" on the Accounts page); an account with only such devices sees just the Fleet tab. |
 
 Security details:
 - Passwords are salted PBKDF2 SHA256 hashes (600,000 rounds), at least 10 characters with letters and numbers or symbols.
@@ -109,6 +109,10 @@ The app renews the token itself; nobody needs to sign in again.
 
 Limits that only Total Secure can lift: on Traccar 6.5 a token cannot be cancelled, and any valid token can create new ones. Ask them to (1) upgrade to Traccar 6.6 or later, so renewal also revokes, and (2) give the app its own read only account, so that disabling that one account cuts off every token it ever had without touching anyone's login.
 
+### Fleet tab
+
+`GET /api/fleet` returns every enabled platform device with its latest position (`/api/devices` and `/api/positions`, two calls, cached 30 s; Refresh starts a new cache). Only the fields the page shows are sent: fleet number, name, type, status, last update, position, speed (km/h), heading, engine state. The tracker IMEI, SIM phone number and contact fields never leave the server. The admin gets every device; other accounts only their assigned ones. With the xlsx source there is no Fleet tab and the endpoint answers 404.
+
 ### Adding more Total Secure data
 
 `app/totalsecure.py` holds the client (auth, https, retries, safe errors) and is shared by every feed. Driver behaviour reports (for example `/reports/events`, `/drivers`) get their own module calling `Client.get()`, next to the GPS source, without touching it. The live WebSocket feed needs a session cookie rather than the token; `GET /api/session?token=...` returns one.
@@ -117,7 +121,7 @@ Limits that only Total Secure can lift: on Traccar 6.5 a token cannot be cancell
 
 ```
 app/
-  main.py          API + static files     /api/meta  /api/sites  /api/vehicles/{v}/days/{day}  /api/mileage  /api/refresh
+  main.py          API + static files     /api/meta  /api/sites  /api/vehicles/{v}/days/{day}  /api/mileage  /api/refresh  /api/fleet
   config.py        paths, analysis rules, Total Secure settings
   totalsecure.py   Total Secure API client, token store and 30 day renewal; `python3 -m app.totalsecure token|status|rotate|check`
   plan.py          Sheet1 + Geofence Directory parser

@@ -121,6 +121,12 @@ async function boot() {
   const q = new URLSearchParams(location.search);
   const withGps = S.meta.vehicles.filter(v => v.has_gps);
   const v = S.meta.vehicles.find(x => x.vehicle === q.get('v') && x.has_gps) || withGps[0];
+  $('#tab-fleet').classList.toggle('hidden', !S.meta.fleet);
+  if (!v && S.meta.fleet) {   // only devices outside the plan: the Fleet tab alone
+    $$('#tab-route,#tab-mileage').forEach(el => el.classList.add('hidden'));
+    setTab('fleet');
+    return;
+  }
   if (!v) {
     $('#title').textContent = 'Route audit';
     $('#subtitle').textContent = S.me.role === 'admin'
@@ -136,7 +142,7 @@ async function boot() {
   initMap();
   wireRoute();
   await loadDay();
-  setTab(q.get('tab') === 'mileage' ? 'mileage' : 'route');
+  setTab(['mileage', 'fleet'].includes(q.get('tab')) && (q.get('tab') !== 'fleet' || S.meta.fleet) ? q.get('tab') : 'route');
 }
 
 function vmeta(vno = S.vehicle) { return S.meta.vehicles.find(v => v.vehicle === vno); }
@@ -231,6 +237,12 @@ function wireDatePicker() {
 }
 
 function setHeader() {
+  if (S.tab === 'fleet') {
+    $('#title').textContent = 'Fleet · All GPS devices';
+    $('#subtitle').textContent = F.data ? `${F.data.devices.length} device${F.data.devices.length === 1 ? '' : 's'} on Total Secure at their latest position` : 'Loading devices…';
+    document.title = 'G4S Fleet';
+    return;
+  }
   const v = vmeta(), d = S.data;
   if (S.tab === 'route') {
     $('#title').textContent = 'Route audit · Vehicle ' + v.vehicle;
@@ -250,17 +262,20 @@ function setHeader() {
 
 function setTab(t) {
   S.tab = t;
-  $('#tab-route').setAttribute('aria-selected', t === 'route');
-  $('#tab-mileage').setAttribute('aria-selected', t === 'mileage');
-  $('#view-route').classList.toggle('hidden', t !== 'route');
-  $('#view-mileage').classList.toggle('hidden', t !== 'mileage');
-  if (t === 'route') { stopReplay(); map.invalidateSize(); }
+  ['route', 'mileage', 'fleet'].forEach(k => {
+    $('#tab-' + k).setAttribute('aria-selected', t === k);
+    $('#view-' + k).classList.toggle('hidden', t !== k);
+  });
+  if (t !== 'route' && map) stopReplay();
+  if (t === 'route') map.invalidateSize();
   if (t === 'mileage') loadMileage();
+  if (t === 'fleet') loadFleet();
   setHeader();
   syncUrl();
 }
 $('#tab-route').onclick = () => setTab('route');
 $('#tab-mileage').onclick = () => setTab('mileage');
+$('#tab-fleet').onclick = () => setTab('fleet');
 
 /* ================= ROUTE CHECK ================= */
 function wireRoute() {
@@ -987,6 +1002,102 @@ function drawChart() {
   });
 }
 addEventListener('resize', () => { if (S.tab === 'mileage') drawChart(); });
+
+/* ================= FLEET ================= */
+const F = { data: null, q: '', status: 'all', map: null, layer: null, marks: {}, sel: null };
+const F_STATUS = { online: 'Online', offline: 'Offline', unknown: 'Unknown' };
+const fColor = st => css(st === 'online' ? '--good' : st === 'offline' ? '--ink-3' : '--warn');
+
+function ago(t) {
+  if (!t) return 'never';
+  const m = Math.max(0, (Date.now() / 1000 - t) / 60);
+  if (m < 1) return 'just now';
+  if (m < 60) return Math.round(m) + ' min ago';
+  if (m < 48 * 60) return Math.round(m / 60) + ' h ago';
+  return Math.round(m / 1440) + ' days ago';
+}
+const when = t => t ? new Date(t * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never';
+
+async function loadFleet() {
+  if (!F.map) {
+    F.map = L.map('fmap', { zoomControl: true, zoomSnap: 0.5, maxZoom: 18, minZoom: 5 });
+    F.map.attributionControl.setPrefix(false);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(F.map);
+    F.layer = L.layerGroup().addTo(F.map);
+    F.map.setView([25.2, 55.4], 8);
+    $('#f-q').oninput = e => { F.q = e.target.value.trim().toLowerCase(); renderFleet(); };
+    $('#f-st').onclick = e => { const b = e.target.closest('[data-st]'); if (b) { F.status = b.dataset.st; renderFleet(); } };
+    $('#f-rows').onclick = e => { const b = e.target.closest('[data-id]'); if (b) selectDevice(+b.dataset.id, true); };
+    F.map.on('popupopen', e => {
+      const b = e.popup.getElement().querySelector('[data-route]');
+      if (b) b.onclick = () => openRoute(b.dataset.route, S.day || vmeta(b.dataset.route).days.slice(-1)[0].day);
+    });
+  }
+  setTimeout(() => F.map.invalidateSize(), 0);
+  if (!F.data) $('#f-rows').innerHTML = '<div class="empty">Loading devices…</div>';
+  try {
+    F.data = await api('/api/fleet');
+  } catch (e) {
+    $('#f-rows').innerHTML = `<div class="empty">Could not load devices: ${esc(e.message)}</div>`;
+    return;
+  }
+  setHeader();
+  renderFleet(true);
+}
+
+function fleetShown() {
+  const order = { online: 0, unknown: 1, offline: 2 };
+  return F.data.devices
+    .filter(d => F.status === 'all' || d.status === F.status)
+    .filter(d => !F.q || [d.vehicle, d.name, d.category].some(x => String(x || '').toLowerCase().includes(F.q)))
+    .sort((a, b) => order[a.status] - order[b.status] || a.vehicle.localeCompare(b.vehicle, 'en', { numeric: true }));
+}
+
+function devicePopup(d) {
+  const canRoute = d.in_plan && d.has_gps && vmeta(d.vehicle);
+  return `<div class="fpop"><b>${esc(d.vehicle)}</b>${d.category ? ` <span class="fcat">${esc(d.category)}</span>` : ''}
+    <div>${F_STATUS[d.status]} · last update ${when(d.last)} (${ago(d.last)})</div>
+    <div>${d.speed != null ? fmt(d.speed, 0) + ' km/h' : 'No position yet'}${d.ignition != null ? ' · engine ' + (d.ignition ? 'on' : 'off') : ''}</div>
+    ${d.name !== d.vehicle ? `<div class="fsub">${esc(d.name)}</div>` : ''}
+    ${canRoute ? `<button class="kmbtn" data-route="${esc(d.vehicle)}">Open in Route check ↗</button>` : d.in_plan ? '' : '<div class="fsub">Not in the G4S route plan</div>'}</div>`;
+}
+
+function renderFleet(fit) {
+  const all = F.data.devices, shown = fleetShown();
+  const n = { online: 0, offline: 0, unknown: 0 };
+  all.forEach(d => n[d.status]++);
+  $('#f-st').innerHTML = [['all', 'All', all.length], ...Object.entries(F_STATUS).map(([k, l]) => [k, l, n[k]])]
+    .map(([k, l, c]) => `<button class="sbtn${F.status === k ? ' on' : ''}" data-st="${k}">${l} ${c}</button>`).join('');
+  $('#f-count').textContent = shown.length === all.length ? `${all.length} devices` : `${shown.length} of ${all.length} devices`;
+  $('#f-rows').innerHTML = shown.length ? shown.map(d => `
+    <button class="frow${F.sel === d.id ? ' on' : ''}" data-id="${d.id}">
+      <i style="background:${fColor(d.status)}"></i>
+      <span class="fname"><b>${esc(d.vehicle)}</b>${d.category ? ` <span class="fcat">${esc(d.category)}</span>` : ''}${d.in_plan ? ' <span class="fplan">G4S plan</span>' : ''}</span>
+      <span class="fspd">${d.speed != null && d.status === 'online' ? fmt(d.speed, 0) + ' km/h' : ''}</span>
+      <span class="fsub">${F_STATUS[d.status]} · ${ago(d.last)}${d.lat == null ? ' · no position yet' : ''}</span>
+    </button>`).join('') : '<div class="empty">No device matches.</div>';
+  F.layer.clearLayers(); F.marks = {};
+  const pts = [];
+  shown.forEach(d => {
+    if (d.lat == null) return;
+    const m = L.circleMarker([d.lat, d.lon], { radius: 7, weight: 2, color: css('--surface'), fillColor: fColor(d.status), fillOpacity: .95 })
+      .bindTooltip(esc(d.vehicle), { direction: 'top', offset: [0, -6] })
+      .bindPopup(() => devicePopup(d))
+      .on('click', () => selectDevice(d.id, false))
+      .addTo(F.layer);
+    F.marks[d.id] = m; pts.push([d.lat, d.lon]);
+  });
+  if (fit && pts.length) F.map.fitBounds(pts, { padding: [30, 30], maxZoom: 13 });
+}
+
+function selectDevice(id, fly) {
+  F.sel = id;
+  $$('#f-rows .frow').forEach(r => r.classList.toggle('on', +r.dataset.id === id));
+  const r = $(`#f-rows [data-id="${id}"]`);
+  if (r) r.scrollIntoView({ block: 'nearest' });
+  const m = F.marks[id];
+  if (m && fly) { F.map.setView(m.getLatLng(), Math.max(F.map.getZoom(), 13)); m.openPopup(); }
+}
 
 async function openRoute(vno, day, after) {
   const same = vno === S.vehicle && day === S.day && S.data;

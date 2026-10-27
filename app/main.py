@@ -201,6 +201,7 @@ def meta(request: Request):
     lo, hi = calendar_range()
     return {"vehicles": out, "source": st.source.name, "loaded_at": int(st.loaded_at), "token_warn_days": token_warn,
             "calendar": {"from": lo, "to": hi, "on_demand": st.source.on_demand},
+            "fleet": hasattr(st.source, "fleet"),
             "rules": {k: getattr(config, k) for k in (
                 "STOP_SPEED_KMH", "STOP_MIN_S", "GEOFENCE_M", "ACCOMMODATION_M", "OUTSIDE_STOP_MIN_S",
                 "SPEED_LIMIT_KMH", "IDLE_MIN_S", "MATCH_WINDOW_MIN", "ON_TIME_MIN")}}
@@ -215,6 +216,32 @@ def refresh():
         if _state is None or time.time() - _state.loaded_at >= REFRESH_MIN_S:
             _state = State()
         return {"loaded_at": int(_state.loaded_at)}
+
+
+@app.get("/api/fleet")
+def fleet(request: Request):
+    """All Total Secure devices at their latest position; other accounts see their assigned ones."""
+    st = state()
+    if not hasattr(st.source, "fleet"):
+        raise HTTPException(404, "The Fleet view needs the Total Secure source.")
+    allowed = _allowed(request)
+    rows = [dict(r, in_plan=r["vehicle"] in st.vehicles, has_gps=r["vehicle"] in st.analysis)
+            for r in st.source.fleet() if allowed is None or r["vehicle"] in allowed]
+    return {"devices": rows, "at": int(time.time())}
+
+
+def _assignable(st):
+    """Vehicles the admin can give an account: the plan, plus every platform device."""
+    out = [{"vehicle": vno, "branch": v.branch, "driver": v.driver, "has_gps": vno in st.analysis, "in_plan": True}
+           for vno, v in sorted(st.vehicles.items())]
+    if hasattr(st.source, "fleet"):
+        seen = set(st.vehicles)
+        for r in sorted(st.source.fleet(), key=lambda r: r["vehicle"]):
+            if r["vehicle"] not in seen:
+                seen.add(r["vehicle"])
+                out.append({"vehicle": r["vehicle"], "branch": r["category"] or "device", "driver": "",
+                            "has_gps": True, "in_plan": False})
+    return out
 
 
 @app.get("/api/sites")
@@ -370,10 +397,7 @@ def me(request: Request):
 
 @app.get("/admin/api/users")
 def admin_users():
-    st = state()
-    vehicles = [{"vehicle": vno, "branch": v.branch, "driver": v.driver, "has_gps": vno in st.analysis}
-                for vno, v in sorted(st.vehicles.items())]
-    return {"users": auth.list_users(), "vehicles": vehicles, "admin_email": config.ADMIN_EMAIL}
+    return {"users": auth.list_users(), "vehicles": _assignable(state()), "admin_email": config.ADMIN_EMAIL}
 
 
 @app.post("/admin/api/users/{uid}/decision")
@@ -386,7 +410,7 @@ def admin_decide(uid: int, body: dict = Body(...)):
 
 @app.post("/admin/api/users/{uid}/vehicles")
 def admin_vehicles(uid: int, body: dict = Body(...)):
-    known = set(state().vehicles)
+    known = {v["vehicle"] for v in _assignable(state())}
     vs = [str(v) for v in body.get("vehicles", []) if str(v) in known]
     try:
         auth.set_vehicles(uid, vs)
