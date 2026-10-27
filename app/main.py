@@ -7,7 +7,8 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
+from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
@@ -17,7 +18,7 @@ from urllib.parse import quote
 
 from . import auth, config
 from .analysis import VehicleAnalysis
-from .geo import day_label
+from .geo import UAE, day_label
 from .plan import load_plan
 from .routes import planned_line
 from .totalsecure import ProviderError
@@ -107,7 +108,42 @@ class State:
             if not pts:
                 continue
             self.analysis[vno] = VehicleAnalysis(veh, self.sites, pts, recs.get(vno, []))
+        self.recs = recs
+        self.extra = OrderedDict()   # (vehicle, date) -> analysis fetched on demand, None when no GPS
+        self.extra_lock = threading.Lock()
         self.loaded_at = time.time()
+
+    def analysis_for(self, vno, day):
+        """The analysis holding `day`: the loaded window, or (Total Secure) that date fetched now
+        with a day either side, so runs over midnight and trips after midnight come out the same."""
+        a = self.analysis.get(vno)
+        if a and day in a.days:
+            return a
+        lo, hi = calendar_range()
+        if not (self.source.on_demand and vno in self.devices and vno in self.vehicles and lo <= day <= hi):
+            return None
+        key = (vno, day)
+        with self.extra_lock:
+            if key not in self.extra:
+                d0 = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=UAE)
+                end = min(d0 + timedelta(days=2), datetime.now(timezone.utc))
+                pts = self.source.positions(vno, (d0 - timedelta(days=1)).astimezone(timezone.utc), end)
+                a = VehicleAnalysis(self.vehicles[vno], self.sites, pts, self.recs.get(vno, [])) if pts else None
+                self.extra[key] = a if a and day in a.days else None
+                while len(self.extra) > ON_DEMAND_KEEP:
+                    self.extra.popitem(last=False)
+            self.extra.move_to_end(key)
+            return self.extra[key]
+
+
+ON_DEMAND_KEEP = 40   # dates fetched on demand kept in memory; Refresh clears them
+
+
+def calendar_range():
+    """First and last date the date picker offers: the previous month and this month, up to today (UAE)."""
+    today = datetime.now(UAE).date()
+    first = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    return first.isoformat(), today.isoformat()
 
 
 REFRESH_MIN_S = 30   # spare the GPS provider: at most one refresh per 30 s
@@ -129,13 +165,6 @@ def state() -> State:
 def provider_down(request, e):
     log.warning("GPS provider: %s", e)
     return JSONResponse({"detail": "GPS provider unavailable: %s" % e}, 503)
-
-
-def _analysis(vno, request):
-    a = state().analysis.get(vno)
-    if not a or not _can_see(request, vno):
-        raise HTTPException(404, "No GPS data for vehicle %s" % vno)
-    return a
 
 
 @app.get("/api/meta")
@@ -169,7 +198,9 @@ def meta(request: Request):
         left = _ts.store.days_left()
         if left is not None and left <= WARN_DAYS:
             token_warn = max(0, int(left))
+    lo, hi = calendar_range()
     return {"vehicles": out, "source": st.source.name, "loaded_at": int(st.loaded_at), "token_warn_days": token_warn,
+            "calendar": {"from": lo, "to": hi, "on_demand": st.source.on_demand},
             "rules": {k: getattr(config, k) for k in (
                 "STOP_SPEED_KMH", "STOP_MIN_S", "GEOFENCE_M", "ACCOMMODATION_M", "OUTSIDE_STOP_MIN_S",
                 "SPEED_LIMIT_KMH", "IDLE_MIN_S", "MATCH_WINDOW_MIN", "ON_TIME_MIN")}}
@@ -194,9 +225,13 @@ def sites():
 
 @app.get("/api/vehicles/{vno}/days/{day}")
 def vehicle_day(vno: str, day: str, request: Request):
-    a = _analysis(vno, request)
-    if day not in a.days:
-        raise HTTPException(404, "No GPS for %s on %s" % (vno, day))
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(404, "Not a date: %s" % day)
+    a = state().analysis_for(vno, day) if _can_see(request, vno) else None
+    if not a:
+        raise HTTPException(404, "No GPS for vehicle %s on %s." % (vno, day_label(day)))
     d = dict(a.day(day))
     v, S = a.v, state().sites
     home = S.by_id.get(v.home)

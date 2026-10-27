@@ -48,7 +48,7 @@ with sync_playwright() as p:
         pg.screenshot(path=str(OUT / ("route_%s.png" % scheme)))
         if scheme == "dark":
             continue
-        days = pg.evaluate("pickable()")
+        days = pg.evaluate("pickable().filter(k => isLoaded(k))")   # dates with GPS loaded
         for d in days:
             pick_date(pg, d)
             pg.wait_for_function("d => window.location.search.includes(d)", arg=d)

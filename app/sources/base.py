@@ -32,6 +32,7 @@ class GpsSource:
     """Base class. Subclasses: XlsxRouteSource, and later a provider API source."""
 
     name = "base"
+    on_demand = False   # True: positions() can fetch dates outside devices() periods
 
     def devices(self) -> List[DeviceInfo]:
         raise NotImplementedError

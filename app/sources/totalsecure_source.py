@@ -60,6 +60,7 @@ def _row(p):
 
 class TotalSecureSource(GpsSource):
     name = "totalsecure"
+    on_demand = True
 
     def __init__(self, client, cache: Path, start: datetime, end: datetime):
         self.client = client

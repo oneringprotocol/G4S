@@ -130,8 +130,8 @@ async function boot() {
     return;
   }
   S.vehicle = v.vehicle;
-  const days = pickable(v);
-  S.day = days.includes(q.get('d')) ? q.get('d') : days[days.length - 1];  // opens on the latest date
+  const days = pickable(v), gpsDays = v.days.map(d => d.day).filter(k => days.includes(k));
+  S.day = days.includes(q.get('d')) ? q.get('d') : gpsDays[gpsDays.length - 1] || days[days.length - 1];  // opens on the latest date with GPS
   fillVehicleSelect();
   initMap();
   wireRoute();
@@ -152,16 +152,19 @@ function fillVehicleSelect() {
 const CAL = { month: null };   // 'YYYY-MM' shown in the calendar
 const isoDay = d => d.toISOString().slice(0, 10);
 const dayDate = k => new Date(k + 'T00:00:00Z');
-function todayKey() { const n = new Date(); return isoDay(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()))); }
-function calRange() {
-  const t = dayDate(todayKey());
-  return { from: isoDay(new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 1, 1))), to: todayKey() };
-}
-function pickable(v = vmeta()) {   // dates with GPS that the calendar allows, oldest first
+const nextKey = (k, n) => isoDay(new Date(dayDate(k).getTime() + n * 864e5));
+const todayKey = () => S.meta.calendar.to;           // UAE today, from the server
+const calRange = () => S.meta.calendar;              // previous month and this month, up to today
+const isLoaded = (k, v = vmeta()) => v.days.some(d => d.day === k);
+function pickable(v = vmeta()) {   // dates the calendar offers, oldest first
   const r = calRange();
-  return v.days.map(d => d.day).filter(k => k >= r.from && k <= r.to);
+  if (!r.on_demand) return v.days.map(d => d.day).filter(k => k >= r.from && k <= r.to);
+  const out = [];   // Total Secure: any date, fetched when picked
+  for (let k = r.from; k <= r.to; k = nextKey(k, 1)) out.push(k);
+  return out;
 }
-const dayLabel = k => (vmeta().days.find(d => d.day === k) || {}).label || k;
+const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const dayLabel = k => { const d = dayDate(k); return `${WD[d.getUTCDay()]} ${d.getUTCDate()} ${MO[d.getUTCMonth()]}`; };
 const CAL_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="11.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 6.5h13M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.4"/></svg>';
 
 function fillDatePicker() {
@@ -191,7 +194,7 @@ function renderCal() {
       <button class="dnav" data-m="1" aria-label="Next month" ${CAL.month >= r.to.slice(0, 7) ? 'disabled' : ''}>›</button>
     </div>
     <div class="calg">${['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(w => `<span class="wd">${w}</span>`).join('')}${cells.join('')}</div>
-    <div class="caln">Dates with GPS in this month and last month.</div>`;
+    <div class="caln">${calRange().on_demand ? 'Any date in this month or last month. Dates not loaded yet come from Total Secure.' : 'Dates with GPS in this month and last month.'}</div>`;
 }
 
 function openCal() {
@@ -283,14 +286,25 @@ async function loadDay(after) {
     $('#kpis').innerHTML = '';
     return;
   }
-  $('#side').innerHTML = '<div class="empty">Loading data…</div>';
+  const day = S.day;
+  $('#side').innerHTML = `<div class="empty">${isLoaded(day) ? 'Loading data…' : 'Loading ' + dayLabel(day) + ' from Total Secure…'}</div>`;
   S.selTrip = null; S.panel = null; S.pin = null;
+  let data;
   try {
-    S.data = await api(`/api/vehicles/${S.vehicle}/days/${S.day}`);
+    data = await api(`/api/vehicles/${S.vehicle}/days/${day}`);
   } catch (e) {
-    $('#side').innerHTML = `<div class="empty">Could not load this day: ${esc(e.message)}</div>`;
+    if (day !== S.day) return;   // another date was picked meanwhile
+    if (S.mode === 'replay') stopReplay();
+    S.data = null;
+    Object.values(LY).forEach(l => l.clearLayers());
+    $('#kpis').innerHTML = '';
+    $('#opsrc').textContent = ''; $('#opsnote').innerHTML = '';
+    $('#side').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    syncUrl();
     return;
   }
+  if (day !== S.day) return;     // another date was picked meanwhile
+  S.data = data;
   S.groupColor = {};
   S.data.trips.forEach(t => { if (!(t.group in S.groupColor)) S.groupColor[t.group] = Object.keys(S.groupColor).length % 9 + 1; });
   setHeader();
@@ -605,6 +619,7 @@ function setMode(m) {
   $('#m-replay').classList.toggle('on', m === 'replay');
   $('#rpbar').classList.toggle('hidden', m !== 'replay');
   $('#narr').classList.add('hidden');
+  if (!S.data) return;   // date without GPS: nothing to show in either mode
   if (S.panel) togglePanel(S.panel);
   if (m === 'replay') setupReplay(); else { stopReplay(); renderSide(); }
   redrawMap(false);
