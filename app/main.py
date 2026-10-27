@@ -62,14 +62,33 @@ def _can_see(request, vno):
     return allowed is None or vno in allowed
 
 
+_ts = None
+
+
+def _ts_client():
+    """One Total Secure client for the app; its token renews itself in the background."""
+    global _ts
+    if _ts is None:
+        from .totalsecure import Client, TokenStore, start_rotation
+        _ts = Client(config.TS_URL, TokenStore())
+        start_rotation(_ts)
+    return _ts
+
+
+if config.GPS_SOURCE == "totalsecure":
+    try:
+        _ts_client()   # start token renewal with the app, not on the first page view
+    except ProviderError as e:
+        log.warning("GPS provider: %s", e)
+
+
 def _source():
     if config.GPS_SOURCE == "xlsx":
         from .sources.xlsx_source import XlsxRouteSource
         return XlsxRouteSource(config.SHEETS, config.CACHE)
     if config.GPS_SOURCE == "totalsecure":
-        from .totalsecure import Client
         from .sources.totalsecure_source import TotalSecureSource, window
-        return TotalSecureSource(Client(config.TS_URL, config.TS_TOKEN), config.CACHE, *window())
+        return TotalSecureSource(_ts_client(), config.CACHE, *window())
     raise RuntimeError("Unknown GPS source: %s" % config.GPS_SOURCE)
 
 
@@ -144,7 +163,13 @@ def meta(request: Request):
                          "device": dev.name})
         out.append(item)
     out.sort(key=lambda x: (not x["has_gps"], x["vehicle"]))
-    return {"vehicles": out, "source": st.source.name, "loaded_at": int(st.loaded_at),
+    token_warn = None   # admin only: days left when automatic renewal has been failing
+    if request.state.user["role"] == "admin" and _ts is not None:
+        from .totalsecure import WARN_DAYS
+        left = _ts.store.days_left()
+        if left is not None and left <= WARN_DAYS:
+            token_warn = max(0, int(left))
+    return {"vehicles": out, "source": st.source.name, "loaded_at": int(st.loaded_at), "token_warn_days": token_warn,
             "rules": {k: getattr(config, k) for k in (
                 "STOP_SPEED_KMH", "STOP_MIN_S", "GEOFENCE_M", "ACCOMMODATION_M", "OUTSIDE_STOP_MIN_S",
                 "SPEED_LIMIT_KMH", "IDLE_MIN_S", "MATCH_WINDOW_MIN", "ON_TIME_MIN")}}

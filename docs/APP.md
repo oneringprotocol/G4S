@@ -69,18 +69,19 @@ The platform runs Traccar; its API reference is in `total secure api/openapi.yam
 
 1. Make an API token. Run this in your own terminal, not in a shared one or a chat:
    ```sh
-   python3 -m app.totalsecure token          # --days 90 by default
+   python3 -m app.totalsecure token
    ```
-   It asks for the platform email and password, keeps them only in memory, signs out again, and prints a `G4S_TS_TOKEN=...` line.
-2. Put that line in `.env` with `G4S_GPS_SOURCE=totalsecure`, then `chmod 600 .env`.
+   It asks for the platform email and password, keeps them only in memory, signs out again, and saves the token to `data/secrets/totalsecure_token.json`. The token is never shown.
+2. Put `G4S_GPS_SOURCE=totalsecure` in `.env`.
 3. Check it: `python3 -m app.totalsecure check` lists the plan vehicles next to the platform device each one matched (the device name starts with the fleet number, e.g. `15590 - DF - SHJ/Rak`).
 4. Restart the app.
+
+Other commands: `python3 -m app.totalsecure status` (when the token was made, when it expires, next renewal) and `python3 -m app.totalsecure rotate` (renew now).
 
 Settings (`.env`):
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `G4S_TS_TOKEN` | empty | API token from step 1 |
 | `G4S_TS_URL` | `https://tracking.totalsecureme.com/api` | platform API address |
 | `G4S_TS_DAYS` | 7 | load today plus this many UAE days before it |
 | `G4S_TS_FROM`, `G4S_TS_TO` | empty | a fixed span of UAE days instead (`YYYY-MM-DD`, both included) |
@@ -90,11 +91,23 @@ Data loads on the first page view after a start. To get newer GPS, any signed in
 ### Security
 
 - The app keeps only the token, never the password. Make it from a read-only platform account if Total Secure offers one; `token` warns when the account can change data.
-- The token lives only in `.env` (git ignored). It is sent only in the `Authorization` header over https, never in a URL, log line or error message. Plain http is refused except to localhost, and redirects are refused so the token cannot be forwarded to another host.
+- The token lives only in `data/secrets/totalsecure_token.json`: git ignored, file readable only by the account running the app (600, folder 700). It is never printed, logged, shown on a page, put in a URL or in an error message, and it is not in `.env`, so editing settings never puts it on screen. A `G4S_TS_TOKEN=` line found in `.env` (older setups) is moved into that file on start, removed from `.env`, and renewed at once.
+- It is sent only in the `Authorization` header over https. Plain http is refused except to localhost, and redirects are refused so the token cannot be forwarded to another host.
 - Every request has a 30 s timeout and up to 2 retries on network errors or 5xx answers.
 - Finished days are cached in `data/cache/totalsecure/` (git ignored, readable only by the account running the app). Today is fetched again on each load.
 - If the token is wrong, expired or the platform is down, pages show "GPS provider unavailable" with the reason, and the next request tries again. The app never falls back to old xlsx data silently.
-- Tokens expire after the `--days` given. To stop one early, change the platform password or revoke it in the platform.
+
+### Token renewal (every 30 days, automatic)
+
+The app renews the token itself; nobody needs to sign in again.
+
+- Every 6 hours a background thread checks the token. When it is 30 days old it asks the platform for a new one valid for 45 days (`POST /api/session/token`, authorised by the current token), proves the new one works with a real request, saves it, and only then switches. Requests in flight keep using the old one, which stays valid, so a renewal never interrupts the app.
+- If a renewal fails (platform down, network), nothing changes and it tries again 6 hours later. The 15 days between renewal (day 30) and expiry (day 45) leave about 60 tries.
+- If fewer than 7 days are left, the admin sees **● Live Feed · access expires in N days** in amber next to the page title, and the server log says why renewal fails. `python3 -m app.totalsecure token` fixes it.
+- The command line and the app share the token file under a lock, so a manual `rotate` and an automatic renewal never clash, and the app picks up a token renewed by the command line without a restart.
+- After switching, the app revokes the old token (`POST /api/session/token/revoke`). **The platform runs Traccar 6.5, which has no revoke** (it answers 404; revoke arrived in 6.6), so on 6.5 old tokens stay valid until they expire, at most 45 days. Revoking starts working by itself once the platform is upgraded.
+
+Limits that only Total Secure can lift: on Traccar 6.5 a token cannot be cancelled, and any valid token can create new ones. Ask them to (1) upgrade to Traccar 6.6 or later, so renewal also revokes, and (2) give the app its own read only account, so that disabling that one account cuts off every token it ever had without touching anyone's login.
 
 ### Adding more Total Secure data
 
@@ -106,7 +119,7 @@ Data loads on the first page view after a start. To get newer GPS, any signed in
 app/
   main.py          API + static files     /api/meta  /api/sites  /api/vehicles/{v}/days/{day}  /api/mileage  /api/refresh
   config.py        paths, analysis rules, Total Secure settings
-  totalsecure.py   Total Secure API client; `python3 -m app.totalsecure token|check`
+  totalsecure.py   Total Secure API client, token store and 30 day renewal; `python3 -m app.totalsecure token|status|rotate|check`
   plan.py          Sheet1 + Geofence Directory parser
   gapfill.py       fills GPS gaps with an estimated track before the analysis runs
   analysis.py      stops, runs, trip matching, stop status, km, outside stops, speeding, idling, replay events

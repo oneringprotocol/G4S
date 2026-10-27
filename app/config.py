@@ -24,9 +24,12 @@ GEOFENCE_TAB = "Geofence Directory"
 
 # GPS source: "xlsx" reads sheets/Route_*.xlsx, "totalsecure" calls the Total Secure API.
 GPS_SOURCE = os.environ.get("G4S_GPS_SOURCE", "xlsx")
-# Total Secure. The token is made with `python3 -m app.totalsecure token` and lives only in .env.
+# Total Secure. The token is made with `python3 -m app.totalsecure token`, kept in TS_TOKEN_FILE
+# (owner only, git ignored) and renewed by the app every 30 days. A G4S_TS_TOKEN left in .env is
+# moved into that file on start and removed from .env.
 TS_URL = os.environ.get("G4S_TS_URL", "https://tracking.totalsecureme.com/api")
 TS_TOKEN = os.environ.get("G4S_TS_TOKEN", "")
+TS_TOKEN_FILE = DATA / "secrets" / "totalsecure_token.json"
 TS_DAYS = int(os.environ.get("G4S_TS_DAYS", "7"))   # load today plus this many UAE days before it ...
 TS_FROM = os.environ.get("G4S_TS_FROM", "")         # ... or a fixed span of UAE days, YYYY-MM-DD,
 TS_TO = os.environ.get("G4S_TS_TO", "")             # both ends included

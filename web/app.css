@@ -71,6 +71,7 @@ h1{font-size:17px;font-weight:650;margin:0}
 .titlerow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .chip.src{background:var(--surface-2);color:var(--ink-2);border-color:var(--line)}
 .chip.src.live{background:var(--good-bg);color:var(--good-ink);border-color:transparent}
+.chip.src.warn{background:var(--warn-bg);color:var(--warn-ink);border-color:transparent}
 h2{font-size:12.5px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);margin:0 0 8px}
 h3{font-size:15px;font-weight:600;margin:0}
 .hidden{display:none!important}

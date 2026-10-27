@@ -109,9 +109,13 @@ async function boot() {
   $('#refresh').title = 'Fetch the latest GPS. ' + loaded;
   const live = S.meta.source === 'totalsecure';
   const src = $('#source');
+  const warn = live && S.meta.token_warn_days != null;
   src.textContent = live ? '● Live Feed' : 'Spreadsheet';
-  src.className = 'chip src' + (live ? ' live' : '');
-  src.title = (live ? 'GPS from the Total Secure platform. ' : 'GPS from the Route export in the sheets folder. ') + loaded;
+  if (warn) src.textContent += ` · access expires in ${S.meta.token_warn_days} day${S.meta.token_warn_days === 1 ? '' : 's'}`;
+  src.className = 'chip src' + (warn ? ' warn' : live ? ' live' : '');
+  src.title = warn
+    ? 'Automatic renewal of the Total Secure token is failing. See the server log, or run: python3 -m app.totalsecure token'
+    : (live ? 'GPS from the Total Secure platform. ' : 'GPS from the Route export in the sheets folder. ') + loaded;
   src.hidden = false;
   S.siteById = Object.fromEntries(S.sites.map(s => [s.id, s]));
   const q = new URLSearchParams(location.search);
