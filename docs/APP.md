@@ -5,9 +5,12 @@ This is the web version of the fleet route audit. It follows `G4S_product_DESIGN
 ## Run
 
 ```bash
-./run.sh                 # installs fastapi, uvicorn, openpyxl, then serves http://localhost:3000
+./run.sh                 # installs fastapi, uvicorn, openpyxl if missing, then serves http://localhost:3000
+scripts/service.sh install   # keep it running: starts at login, restarts within 10 s if it stops (macOS launchd)
 G4S_TEST_EMAIL=... G4S_TEST_PASSWORD=... python3 tests/shots.py http://localhost:3000 tests/out   # headless walk-through (Brave or Chrome)
 ```
+
+`run.sh` exits with a note when the app is already running, so a second start never clashes on the port. With the service installed, use `scripts/service.sh restart` after code changes, `status` to check it and `uninstall` to remove it. The service writes its log to `data/cache/server.log`.
 
 The first start parses the GPS export, which takes about 8 s, and caches it in `data/cache/`. Later starts take about 1 s.
 
