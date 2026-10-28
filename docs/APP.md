@@ -26,6 +26,7 @@ Every page and API needs a signed-in, approved account.
 | Approve / reject | On `/admin` the admin ticks the vehicles the account may view, then approves or rejects. An approved user gets an email. **Remove access** signs the user out immediately. |
 | Passwords | Only the admin changes passwords: **Set password** on the Accounts page, for any approved account or the admin account itself. The user is signed out everywhere (the admin keeps the current session). There is no self service reset; the sign in page tells users to ask the admin. |
 | Vehicle access | The admin sees every vehicle. Other accounts see only their assigned vehicles, in every view and API. With none assigned they see a "no vehicles assigned yet" note. With the Total Secure source the admin can also assign any platform device outside the plan (marked "Fleet tab only" on the Accounts page); an account with only such devices sees just the Fleet tab. |
+| Operations team | A tick on each account on `/admin`. Only the admin and these accounts see the **Operations** tab and its API (`/api/ops*`); everyone else gets 403. An operations account with no vehicles assigned sees the Operations tab alone. |
 
 Security details:
 - Passwords are salted PBKDF2 SHA256 hashes (600,000 rounds), at least 10 characters with letters and numbers or symbols.
@@ -33,6 +34,30 @@ Security details:
 - Every POST needs the `X-G4S` header, which blocks cross-site form posts.
 - Sign in locks for 15 min after 5 failed attempts.
 - Data lives in `data/app.db` (SQLite, git ignored).
+
+## Operations tab
+
+The **Operations** tab is where the operations team logs vehicle replacements. It replaces the first two tabs of the internal operations spreadsheet ("Permanent Vehicles - Internal" and "Replacement Vehicles"), with the same columns in the same order.
+
+| Part | What it does |
+|---|---|
+| Tiles | **Active replacements** (from AGT vs out source, by emirate), **in the workshop with no replacement**, **in the workshop now** (average and longest days), **permanent vehicles** by type, **logged this month**. Clicking a tile filters the table. |
+| Replacement vehicles | The replacement log, newest first. Search, filter by status, supplier and emirate, sort by any column, download CSV. Open entries have an amber edge. "not logged" marks a returned replacement with no return date. |
+| Permanent vehicles | The vehicle directory. **Now** shows whether the vehicle is in the workshop and which replacement is running. |
+| Log / edit form | Pick the permanent plate and its SWVL number, driver, contact, emirate and type fill in from the directory. A warning appears if the vehicle already has an open entry. The status follows the supplier: AGT gives **Active** / **Returned**, any other supplier gives **Active - Out Source** / **Returned - Out Source**. **Mark returned today** closes the entry. Replacement type and workshop days are worked out as in the sheet formulas. |
+| History | Every entry records who logged it and who edited it last. The form lists every change (field, old value, new value). Deleted entries stay in the history. |
+| Live | The tab reloads every 60 s while no form is open, so the team sees each other's entries. Saving an entry that someone else changed meanwhile is refused with a message to reopen it. |
+
+**Feeds the route check.** Each replacement with a replacement plate and date becomes a maintenance record for the permanent vehicle. It runs from the replacement date to the day before the return date, or stays open while the status is Active. Those days show **Run by replacement** in the route check straight after saving, with no GPS refresh. A "Returned" entry with no return date counts for its replacement date only.
+
+Data lives in `data/app.db`, in the tables `ops_vehicles`, `ops_replacements` and `ops_history` (`app/ops.py`). The sheet history was imported once with:
+
+```bash
+python3 -m app.ops import "sheets/Internal_ G4S Operations Sheet.xlsx"            # refuses if the tables have data
+python3 -m app.ops import "sheets/Internal_ G4S Operations Sheet.xlsx" --replace  # wipes the tables and imports again
+```
+
+The import maps tab 1 columns A to O to the directory and puts the free notes in columns P to Z into **Notes**. Tab 2 columns A to S map to the log; O and P are formulas and are worked out on read. Text found in a date column moves to **Remarks**.
 
 **Email sending.** Set these before `./run.sh`:
 
@@ -53,7 +78,7 @@ Without SMTP settings, emails are saved to `data/outbox/*.eml` and the server lo
 | GPS | `sheets/Route_*.xlsx` (tracker "Route" report, UTC), or the Total Secure API (see below) | actual positions, speed, ignition, odometer |
 | Plan names to sites | `data/plan_aliases.json` | group names such as "UTICO" mapped to directory sites |
 | Directory fixes | `data/site_overrides.json` | README section 6 fixes |
-| Maintenance records | `data/records.json` | replacement days (currently empty) |
+| Maintenance records | the Operations tab (`ops_replacements` in `data/app.db`), plus `data/records.json` | replacement days: trips show Run by replacement |
 
 With the xlsx source, to add GPS for another vehicle drop another `Route_<vehicle>_*.xlsx` in `sheets/` and restart. It is picked up automatically, and the vehicle dropdown enables it.
 
@@ -124,7 +149,8 @@ Limits that only Total Secure can lift: on Traccar 6.5 a token cannot be cancell
 
 ```
 app/
-  main.py          API + static files     /api/meta  /api/sites  /api/vehicles/{v}/days/{day}  /api/mileage  /api/refresh  /api/fleet
+  main.py          API + static files     /api/meta  /api/sites  /api/vehicles/{v}/days/{day}  /api/mileage  /api/refresh  /api/fleet  /api/ops
+  ops.py           Operations tab: vehicle directory, replacement log, change history, records for the analysis, sheet import
   config.py        paths, analysis rules, Total Secure settings
   totalsecure.py   Total Secure API client, token store and 30 day renewal; `python3 -m app.totalsecure token|status|rotate|check`
   plan.py          Sheet1 + Geofence Directory parser

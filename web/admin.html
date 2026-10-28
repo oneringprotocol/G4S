@@ -12,7 +12,7 @@
   <div class="hrow" style="padding-bottom:12px">
     <div>
       <h1>Accounts</h1>
-      <div class="sub" id="sub">Approve new accounts and choose which vehicles each account can view.</div>
+      <div class="sub" id="sub">Approve new accounts, choose which vehicles each account can view, and who is on the operations team.</div>
     </div>
     <div class="hright userbox">
       <a href="/">Open the app</a>
@@ -42,6 +42,11 @@ function picker(u) {
     <input type="checkbox" value="${v.vehicle}" ${mine.has(v.vehicle) ? 'checked' : ''}> ${v.vehicle} · ${esc(v.branch)}${v.in_plan === false ? ' · Fleet tab only' : v.has_gps ? '' : ' · no GPS yet'}</label>`).join('')}</div>`;
 }
 
+function opsFlag(u) {
+  return `<label class="opsflag"><input type="checkbox" data-ops="${u.id}" ${u.ops ? 'checked' : ''}>
+    Operations team: can view the internal vehicle directory and log replacements in the Operations tab</label>`;
+}
+
 function details(u) {
   return `<dl><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Company</dt><dd>${esc(u.company)}</dd>
     <dt>Phone</dt><dd>${esc(u.phone || 'not given')}</dd><dt>Signed up</dt><dd>${when(u.created_at)}</dd>
@@ -53,13 +58,13 @@ function card(u) {
   const st = { pending: '<span class="chip st-Passed">Waiting for approval</span>', approved: '<span class="chip st-Validated">✓ Approved</span>',
     rejected: '<span class="chip st-Not">✕ Rejected</span>' }[u.status];
   let body = '';
-  if (u.role === 'admin') body = `<p class="muted" style="margin:6px 0 10px;font-size:12.5px">Admin account (${esc(u.email)}). Sees every vehicle.</p>
+  if (u.role === 'admin') body = `<p class="muted" style="margin:6px 0 10px;font-size:12.5px">Admin account (${esc(u.email)}). Sees every vehicle and the Operations tab.</p>
     <div class="msg" hidden></div><div class="btnrow"><button class="btn" data-act="pw" data-u="${u.id}">Set password</button></div>${pwForm(u)}`;
-  else if (u.status === 'pending') body = `${details(u)}<h2>Vehicles this account can view</h2>${picker(u)}
+  else if (u.status === 'pending') body = `${details(u)}<h2>Vehicles this account can view</h2>${picker(u)}${opsFlag(u)}
     <div class="msg" hidden></div><div class="btnrow" style="margin-top:10px"><button class="btn ok" data-act="approve" data-u="${u.id}">Approve</button>
     <button class="btn no" data-act="reject" data-u="${u.id}">Reject</button></div>`;
-  else if (u.status === 'approved') body = `${details(u)}<h2>Vehicles this account can view</h2>${picker(u)}
-    <div class="msg" hidden></div><div class="btnrow" style="margin-top:10px"><button class="btn" data-act="save" data-u="${u.id}">Save vehicles</button>
+  else if (u.status === 'approved') body = `${details(u)}<h2>Vehicles this account can view</h2>${picker(u)}${opsFlag(u)}
+    <div class="msg" hidden></div><div class="btnrow" style="margin-top:10px"><button class="btn" data-act="save" data-u="${u.id}">Save access</button>
     <button class="btn" data-act="pw" data-u="${u.id}">Set password</button>
     <button class="btn no" data-act="reject" data-u="${u.id}">Remove access</button></div>${pwForm(u)}`;
   else body = `${details(u)}<div class="btnrow"><button class="btn ok" data-act="approve" data-u="${u.id}">Approve</button>
@@ -114,6 +119,8 @@ async function act(what, id, btn) {
   try {
     if (what === 'approve' || what === 'save') {
       if ($(`.vpick[data-u="${id}"]`)) await post(`/admin/api/users/${id}/vehicles`, { vehicles: picked(id) });
+      const flag = $(`[data-ops="${id}"]`);
+      if (flag) await post(`/admin/api/users/${id}/ops`, { ops: flag.checked });
     }
     if (what === 'approve') await post(`/admin/api/users/${id}/decision`, { approve: true });
     if (what === 'reject') await post(`/admin/api/users/${id}/decision`, { approve: false });

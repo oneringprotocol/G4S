@@ -97,8 +97,16 @@ async function boot() {
   applyTheme(store.get('g4s-theme', 'auto'));
   $('#refresh').onclick = refreshGps;
   try {
-    [S.me, S.meta, S.sites] = await Promise.all([api('/api/me'), api('/api/meta'), api('/api/sites')]);
+    S.me = await api('/api/me');
   } catch (e) {
+    $('#subtitle').textContent = 'Could not load data: ' + e.message;
+    return;
+  }
+  $('#tab-ops').classList.toggle('hidden', !S.me.ops);
+  try {
+    [S.meta, S.sites] = await Promise.all([api('/api/meta'), api('/api/sites')]);
+  } catch (e) {
+    if (S.me.ops) { opsOnly('GPS data could not load (' + e.message + '). The Operations tab still works.'); return; }
     $('#subtitle').textContent = 'Could not load data: ' + e.message;
     return;
   }
@@ -124,9 +132,10 @@ async function boot() {
   $('#tab-fleet').classList.toggle('hidden', !S.meta.fleet);
   if (!v && S.meta.fleet) {   // only devices outside the plan: the Fleet tab alone
     $$('#tab-route,#tab-mileage').forEach(el => el.classList.add('hidden'));
-    setTab('fleet');
+    setTab(S.me.ops && q.get('tab') === 'ops' ? 'ops' : 'fleet');
     return;
   }
+  if (!v && S.me.ops) { opsOnly(); return; }
   if (!v) {
     $('#title').textContent = 'Route audit';
     $('#subtitle').textContent = S.me.role === 'admin'
@@ -142,7 +151,21 @@ async function boot() {
   initMap();
   wireRoute();
   await loadDay();
-  setTab(['mileage', 'fleet'].includes(q.get('tab')) && (q.get('tab') !== 'fleet' || S.meta.fleet) ? q.get('tab') : 'route');
+  const want = q.get('tab');
+  setTab(want === 'mileage' || (want === 'fleet' && S.meta.fleet) || (want === 'ops' && S.me.ops) ? want : 'route');
+}
+
+// the operations team without GPS vehicles (or with the GPS provider down): the Operations tab alone
+function opsOnly(note) {
+  if (!$('#userbox').innerHTML) {
+    $('#userbox').innerHTML = `${S.me.role === 'admin' ? '<a href="/admin">Accounts</a>' : ''}<span class="who" title="${esc(S.me.email)}">${esc(S.me.email)}</span>
+      <button class="iconbtn" id="signout">Sign out</button>`;
+    $('#signout').onclick = signOut;
+  }
+  $$('#tab-route,#tab-mileage').forEach(el => el.classList.add('hidden'));
+  if (!S.meta || !S.meta.fleet) $('#tab-fleet').classList.add('hidden');
+  O.note = note || '';
+  setTab('ops');
 }
 
 function vmeta(vno = S.vehicle) { return S.meta.vehicles.find(v => v.vehicle === vno); }
@@ -237,6 +260,13 @@ function wireDatePicker() {
 }
 
 function setHeader() {
+  if (S.tab === 'ops') {
+    const d = O.data;
+    $('#title').textContent = 'Operations · Vehicles and replacements';
+    $('#subtitle').textContent = O.note || (d ? `${d.summary.permanent} permanent vehicles · ${d.summary.active} active replacements · ${d.replacements.length} entries logged` : 'Loading…');
+    document.title = 'G4S Operations';
+    return;
+  }
   if (S.tab === 'fleet') {
     $('#title').textContent = 'Fleet · All GPS devices';
     $('#subtitle').textContent = F.data ? `${F.data.devices.length} device${F.data.devices.length === 1 ? '' : 's'} on Total Secure at their latest position` : 'Loading devices…';
@@ -262,20 +292,22 @@ function setHeader() {
 
 function setTab(t) {
   S.tab = t;
-  ['route', 'mileage', 'fleet'].forEach(k => {
+  ['route', 'mileage', 'fleet', 'ops'].forEach(k => {
     $('#tab-' + k).setAttribute('aria-selected', t === k);
     $('#view-' + k).classList.toggle('hidden', t !== k);
   });
-  if (t !== 'route' && map) stopReplay();
+  if (t !== 'route' && typeof map !== 'undefined' && map) stopReplay();
   if (t === 'route') map.invalidateSize();
   if (t === 'mileage') loadMileage();
   if (t === 'fleet') loadFleet();
+  if (t === 'ops') loadOps();
   setHeader();
   syncUrl();
 }
 $('#tab-route').onclick = () => setTab('route');
 $('#tab-mileage').onclick = () => setTab('mileage');
 $('#tab-fleet').onclick = () => setTab('fleet');
+$('#tab-ops').onclick = () => setTab('ops');
 
 /* ================= ROUTE CHECK ================= */
 function wireRoute() {
@@ -1105,6 +1137,318 @@ async function openRoute(vno, day, after) {
   $('#vsel').value = vno;
   setTab('route');
   if (same) { if (after) after(); } else await loadDay(after);
+}
+
+/* ================= OPERATIONS ================= */
+// Replaces the first two tabs of the Internal G4S Operations Sheet. Columns follow the sheet order.
+const O = { data: null, view: 'replacements', q: '', status: 'all', emirate: 'all', supplier: 'all',
+  sort: { replacements: { k: 'id', dir: -1 }, vehicles: { k: 'swvl_no', dir: 1 } }, edit: null, note: '', timer: 0 };
+const REP_COLS = [
+  ['plate', 'Permanent vehicle'], ['swvl_no', 'SWVL number'], ['vehicle_status', 'Vehicle status'], ['vehicle_type', 'Vehicle type'],
+  ['replacement', 'Replacement'], ['supplier', 'Supplier'], ['replacement_date', 'Replacement date', 'd'], ['emirate', 'Emirate'],
+  ['driver', 'Driver'], ['contact', 'Contact'], ['status', 'Status', 's'], ['return_date', 'Return date', 'd'],
+  ['workshop_date', 'Workshop report date', 'd'], ['perm_return_date', 'Permanent vehicle return date', 'd'],
+  ['workshop_days', 'Total workshop days', 'n'], ['replacement_type', 'Replacement type'], ['issue', 'Issues', 'w'],
+  ['issue_date', 'Issue report date', 'd'], ['remarks', 'Remarks', 'w']];
+const VEH_COLS = [
+  ['supplier', 'Supplier name'], ['swvl_no', 'SWVL number'], ['agt_agreement', 'AGT agreement number'], ['g4s_agreement', 'G4S agreement number'],
+  ['plate_code', 'Plate code'], ['plate', 'Plate number'], ['vehicle_type', 'Vehicle type'], ['emirate', 'Emirate'], ['driver', 'Driver'],
+  ['contact', 'Contact'], ['delivery_date', 'Delivery date', 'd'], ['delivery_time', 'Time'], ['start_date', 'Start date', 'd'],
+  ['vehicle_status', 'Vehicle status'], ['rental_charges', 'Rental charges', 'n'], ['now', 'Now', 'now'], ['replacements', 'Replacements', 'n'], ['notes', 'Notes', 'w']];
+const OPS_FILTERS = { all: 'All', open: 'In workshop now', running: 'Active, AGT or out source', active: 'Active', outsource: 'Active out source', none: 'No replacement', closed: 'Closed' };
+const opsPost = async (url, body) => {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-G4S': '1' }, body: JSON.stringify(body || {}) });
+  if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent('/?tab=ops'); throw new Error('Sign in to continue.'); }
+  if (!r.ok) throw await errorOf(r);
+  return r.json();
+};
+const fdate = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? `${+v.slice(8)} ${MO[+v.slice(5, 7) - 1]} ${v.slice(0, 4)}` : (v || '');
+const statusClass = st => st === 'Active' ? 'os-act' : st === 'Active - Out Source' ? 'os-out'
+  : O.data.options.no_replacement.includes(st) ? 'os-none' : 'os-done';
+const plateOf = s => (String(s || '').match(/^\s*(\d+)/) || [])[1] || '';
+
+async function loadOps(quiet) {
+  const el = $('#ops');
+  if (!O.data) el.innerHTML = '<div class="loading">Loading the operations log…</div>';
+  try {
+    O.data = await api('/api/ops');
+  } catch (e) {
+    if (!quiet) el.innerHTML = `<div class="empty">Could not load the operations log: ${esc(e.message)}</div>`;
+    return;
+  }
+  setHeader();
+  renderOpsTab();
+  // live view: pick up what the rest of the team logs, unless a form is open
+  clearInterval(O.timer);
+  O.timer = setInterval(() => { if (S.tab === 'ops' && !O.edit && !document.hidden) loadOps(true); }, 60000);
+}
+
+function opsRows() {
+  const d = O.data, q = O.q.toLowerCase();
+  const cols = O.view === 'replacements' ? REP_COLS : VEH_COLS;
+  let rows = O.view === 'replacements' ? d.replacements : d.vehicles;
+  if (O.view === 'replacements') {
+    const f = O.status, o = d.options;
+    rows = rows.filter(r => f === 'all' || (f === 'open' && r.open) || (f === 'active' && r.status === 'Active')
+      || (f === 'running' && o.active.includes(r.status))
+      || (f === 'outsource' && r.status === 'Active - Out Source') || (f === 'none' && o.no_replacement.includes(r.status))
+      || (f === 'closed' && !r.open));
+    if (O.supplier !== 'all') rows = rows.filter(r => r.supplier === O.supplier);
+  }
+  if (O.emirate !== 'all') rows = rows.filter(r => r.emirate === O.emirate);
+  if (q) rows = rows.filter(r => cols.some(([k]) => String(r[k] ?? '').toLowerCase().includes(q)));
+  const { k, dir } = O.sort[O.view];
+  const val = r => k === 'now' ? r.open.length : r[k];
+  return [...rows].sort((a, b) => {
+    const x = val(a), y = val(b);
+    if (x === y) return (a.id - b.id) * dir;
+    if (x === '' || x == null) return 1;
+    if (y === '' || y == null) return -1;
+    return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'en', { numeric: true })) * dir;
+  });
+}
+
+function opsCell(r, [k, , t]) {
+  const v = r[k];
+  if (t === 's') return `<td><span class="chip ${statusClass(v)}">${esc(v)}</span></td>`;
+  if (t === 'd') {
+    const missing = k === 'return_date' && !v && r.replacement && !r.open;
+    return `<td class="num">${missing ? '<span class="miss" title="Returned, but no return date was logged">not logged</span>' : esc(fdate(v))}</td>`;
+  }
+  if (t === 'n') return `<td class="num">${v == null || v === '' ? '' : esc(k === 'rental_charges' ? fmt(+v, 2) : v)}</td>`;
+  if (t === 'w') return `<td class="wide" title="${esc(v)}">${esc(v)}</td>`;
+  if (t === 'now') {
+    const reps = r.open.map(id => O.data.replacements.find(x => x.id === id)).filter(Boolean);
+    return `<td>${reps.length ? reps.map(x => `<span class="chip ${statusClass(x.status)}">In workshop${x.replacement ? ' · ' + esc(x.replacement) : ', no replacement'}</span>`).join(' ') : '<span class="muted">Running</span>'}</td>`;
+  }
+  return `<td>${esc(v)}</td>`;
+}
+
+function renderOpsTab() {
+  const d = O.data, sm = d.summary, o = d.options, isRep = O.view === 'replacements';
+  const cols = isRep ? REP_COLS : VEH_COLS, rows = opsRows(), srt = O.sort[O.view];
+  const types = Object.entries(sm.by_type).map(([t, n]) => `${n} × ${esc(t)}`).join(' · ');
+  const emLines = sm.by_emirate.map(e => `<span class="tl">${esc(e.emirate)}: ${e.replacement} AGT${e.outsource ? ` + ${e.outsource} out source` : ''}</span>`).join('');
+  $('#ops').innerHTML = `
+    <div class="tiles otiles">
+      <div class="tile click" data-f="running" role="button" tabindex="0"><div class="l">Active replacements</div><div class="v num">${sm.active}</div>
+        <span class="tl"><b class="num">${sm.replacement}</b> replacement from ${esc(o.main_supplier)} · <b class="num">${sm.outsource}</b> out source</span>${emLines}</div>
+      <div class="tile click" data-f="none" role="button" tabindex="0"><div class="l">In workshop, no replacement</div><div class="v num">${sm.waiting}</div>
+        <span class="tl ${sm.waiting ? 'neg' : 'pos'}">${sm.waiting ? 'Trips at risk until a vehicle is provided' : 'Every vehicle in the workshop is covered'}</span></div>
+      <div class="tile click" data-f="open" role="button" tabindex="0"><div class="l">In the workshop now</div><div class="v num">${sm.in_workshop}</div>
+        <span class="tl">${sm.avg_days != null ? `${sm.avg_days} days on average · longest ${sm.max_days} days` : 'None'}</span></div>
+      <div class="tile click" data-view="vehicles" role="button" tabindex="0"><div class="l">Permanent vehicles</div><div class="v num">${sm.permanent}</div>
+        <span class="tl">${types}</span></div>
+      <div class="tile"><div class="l">Logged this month</div><div class="v num">${sm.this_month}</div>
+        <span class="tl">Replacement or issue dated this month</span></div>
+    </div>
+    <div class="card ocard">
+      <div class="ch">
+        <div class="seg" role="group" aria-label="Table">
+          <button class="sbtn${isRep ? ' on' : ''}" data-view="replacements">Replacement vehicles · ${d.replacements.length}</button>
+          <button class="sbtn${isRep ? '' : ' on'}" data-view="vehicles">Permanent vehicles · ${d.vehicles.length}</button>
+        </div>
+        <div class="r"><button class="btn" id="o-csv">Download CSV</button>
+          <button class="btn ok" id="o-new">${isRep ? '+ Log replacement' : '+ Add vehicle'}</button></div>
+      </div>
+      <div class="filters ofilters">
+        <input type="search" id="o-q" placeholder="Search plate, SWVL number, driver, issue…" aria-label="Search" value="${esc(O.q)}">
+        ${isRep ? `<label class="dd">Status <select id="o-st">${Object.entries(OPS_FILTERS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+          <label class="dd">Supplier <select id="o-sup"><option value="all">All suppliers</option>${o.suppliers.map(x => `<option>${esc(x)}</option>`).join('')}</select></label>` : ''}
+        <label class="dd">Emirate <select id="o-em"><option value="all">All emirates</option>${o.emirates.map(x => `<option>${esc(x)}</option>`).join('')}</select></label>
+        <span class="muted">${rows.length === (isRep ? d.replacements : d.vehicles).length ? rows.length + ' rows' : `${rows.length} of ${(isRep ? d.replacements : d.vehicles).length} rows`} · click a row to edit</span>
+      </div>
+      ${rows.length ? `<div class="x2wrap owrap"><table class="opst"><thead><tr>${cols.map(([k, l]) =>
+        `<th data-k="${k}" aria-sort="${srt.k === k ? (srt.dir > 0 ? 'ascending' : 'descending') : 'none'}">${esc(l)}${srt.k === k ? (srt.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr data-id="${r.id}" tabindex="0" class="${r.open ? 'isopen' : ''}">${cols.map(c => opsCell(r, c)).join('')}</tr>`).join('')}</tbody></table></div>`
+        : '<div class="empty">No rows match these filters.</div>'}
+    </div>`;
+  if (isRep) { $('#o-st').value = O.status; $('#o-sup').value = O.supplier; }
+  $('#o-em').value = O.emirate;
+  $('#o-q').oninput = e => { O.q = e.target.value; const at = e.target.selectionStart; renderOpsTab(); const i = $('#o-q'); i.focus(); i.setSelectionRange(at, at); };
+  if (isRep) {
+    $('#o-st').onchange = e => { O.status = e.target.value; renderOpsTab(); };
+    $('#o-sup').onchange = e => { O.supplier = e.target.value; renderOpsTab(); };
+  }
+  $('#o-em').onchange = e => { O.emirate = e.target.value; renderOpsTab(); };
+  $$('#ops [data-view]').forEach(b => b.onclick = () => { O.view = b.dataset.view; renderOpsTab(); });
+  $$('#ops .tile[data-f]').forEach(t => {
+    const go = () => { O.view = 'replacements'; O.status = t.dataset.f; renderOpsTab(); };
+    t.onclick = go; t.onkeydown = e => { if (e.key === 'Enter') go(); };
+  });
+  $$('#ops .tile[data-view]').forEach(t => t.onkeydown = e => { if (e.key === 'Enter') t.click(); });
+  $$('#ops th[data-k]').forEach(th => th.onclick = () => {
+    const s = O.sort[O.view];
+    O.sort[O.view] = s.k === th.dataset.k ? { k: s.k, dir: -s.dir } : { k: th.dataset.k, dir: 1 };
+    renderOpsTab();
+  });
+  $$('#ops tbody tr').forEach(tr => {
+    tr.onclick = () => openEditor(O.view, +tr.dataset.id);
+    tr.onkeydown = e => { if (e.key === 'Enter') openEditor(O.view, +tr.dataset.id); };
+  });
+  $('#o-new').onclick = () => openEditor(O.view, null);
+  $('#o-csv').onclick = () => opsCsv(cols, rows);
+}
+
+function opsCsv(cols, rows) {
+  const q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
+  const val = (r, k) => k === 'now' ? (r.open.length ? 'In workshop' : 'Running') : r[k];
+  const blob = new Blob([[cols.map(c => c[1]), ...rows.map(r => cols.map(([k]) => val(r, k)))].map(r => r.map(q).join(',')).join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = O.view === 'replacements' ? 'G4S replacement vehicles.csv' : 'G4S permanent vehicles.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---------- log and edit form ---------- */
+const fld = (name, label, v, type = 'text', extra = '') =>
+  `<label class="field"><span>${label}</span><input name="${name}" type="${type}" value="${esc(v ?? '')}" ${extra}></label>`;
+const selFld = (name, label, v, opts, blank) =>
+  `<label class="field"><span>${label}</span><select name="${name}">${blank ? `<option value="">${blank}</option>` : ''}${
+    [...new Set([...(v && !opts.includes(v) ? [v] : []), ...opts])].map(x => `<option ${x === v ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>`;
+
+function openEditor(tab, id) {
+  const d = O.data, o = d.options;
+  const row = id ? (tab === 'replacements' ? d.replacements : d.vehicles).find(r => r.id === id) : null;
+  if (id && !row) return;
+  O.edit = { tab, id, updated_at: row ? row.updated_at : null };
+  const r = row || (tab === 'replacements'
+    ? { supplier: o.main_supplier, status: 'Active', replacement_date: d.today, workshop_date: d.today, issue_date: d.today }
+    : { supplier: 'Al Ghazal', vehicle_status: 'Brand New' });
+  const title = tab === 'replacements' ? (row ? `Replacement for ${row.plate}` : 'Log a replacement') : (row ? `Vehicle ${row.plate}` : 'Add a permanent vehicle');
+  const body = tab === 'replacements' ? `
+      <h2>Permanent vehicle</h2>
+      ${fld('plate', 'Plate number of the permanent vehicle', r.plate, 'text', 'list="dl-plates" required autocomplete="off"')}
+      <div class="vinfo" id="vinfo"></div>
+      <details class="snap"${row ? '' : ' hidden'}><summary>Vehicle details on this entry</summary>
+        <div class="fgrid">${fld('swvl_no', 'SWVL number', r.swvl_no)}${fld('driver', 'Driver', r.driver)}${fld('contact', 'Contact', r.contact)}
+        ${selFld('emirate', 'Emirate', r.emirate, o.emirates, 'Not set')}${selFld('vehicle_type', 'Vehicle type', r.vehicle_type, o.vehicle_types, 'Not set')}
+        ${selFld('vehicle_status', 'Vehicle status', r.vehicle_status, o.vehicle_statuses, 'Not set')}</div></details>
+      <h2>Issue and workshop</h2>
+      <div class="fgrid">${fld('issue', 'Issue', r.issue, 'text', 'list="dl-issues" autocomplete="off"')}${fld('issue_date', 'Issue report date', r.issue_date, 'date')}
+      ${fld('workshop_date', 'Workshop report date', r.workshop_date, 'date')}${fld('perm_return_date', 'Permanent vehicle return date', r.perm_return_date, 'date')}</div>
+      <h2>Replacement</h2>
+      <div class="fgrid">${fld('supplier', 'Supplier', r.supplier, 'text', 'list="dl-sup" autocomplete="off"')}${fld('replacement', 'Replacement plate number', r.replacement)}
+      ${fld('replacement_date', 'Replacement date', r.replacement_date, 'date')}${fld('return_date', 'Return date', r.return_date, 'date')}</div>
+      ${selFld('status', 'Status', r.status, o.statuses)}
+      <div class="btnrow"><button type="button" class="btn" id="f-ret">Mark returned today</button><span class="calc" id="f-calc"></span></div>
+      <label class="field"><span>Remarks</span><textarea name="remarks" rows="3">${esc(r.remarks)}</textarea></label>
+      <datalist id="dl-plates">${d.vehicles.map(v => `<option value="${esc(v.plate)}">${esc(v.swvl_no)} · ${esc(v.driver)}</option>`).join('')}</datalist>
+      <datalist id="dl-issues">${o.issues.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+      <datalist id="dl-sup">${o.suppliers.map(x => `<option value="${esc(x)}">`).join('')}</datalist>` : `
+      <div class="fgrid">${fld('plate', 'Plate number', r.plate, 'text', 'required')}${fld('plate_code', 'Plate code', r.plate_code)}
+      ${fld('swvl_no', 'SWVL number', r.swvl_no)}${fld('supplier', 'Supplier name', r.supplier)}
+      ${fld('agt_agreement', 'AGT agreement number', r.agt_agreement)}${fld('g4s_agreement', 'G4S agreement number', r.g4s_agreement)}
+      ${selFld('vehicle_type', 'Vehicle type', r.vehicle_type, o.vehicle_types, 'Not set')}${selFld('emirate', 'Emirate', r.emirate, o.emirates, 'Not set')}
+      ${fld('driver', 'Driver', r.driver)}${fld('contact', 'Contact', r.contact)}
+      ${fld('delivery_date', 'Delivery date', r.delivery_date, 'date')}${fld('delivery_time', 'Delivery time', r.delivery_time, 'time')}
+      ${fld('start_date', 'Start date', r.start_date, 'date')}${selFld('vehicle_status', 'Vehicle status', r.vehicle_status, o.vehicle_statuses, 'Not set')}
+      ${fld('rental_charges', 'Rental charges', r.rental_charges, 'text', 'inputmode="decimal"')}</div>
+      <label class="field"><span>Notes</span><textarea name="notes" rows="3">${esc(r.notes)}</textarea></label>`;
+  $('#drawer').innerHTML = `
+    <div class="dhd"><h3 id="dr-h">${esc(title)}</h3><button class="x" id="dr-x" aria-label="Close">✕</button></div>
+    <form id="dr-f" novalidate><div class="dbody">
+      ${row ? `<div class="stamp">Logged by ${esc(row.created_by)} · ${when(row.created_at)}${row.updated_at !== row.created_at ? `<br>Last edit by ${esc(row.updated_by)} · ${when(row.updated_at)}` : ''}</div>` : ''}
+      <div class="msg" hidden></div>${body}
+      ${row ? '<h2>Change history</h2><div class="hist" id="dr-hist"><div class="muted">Loading…</div></div>' : ''}
+    </div>
+    <div class="dft"><button class="btn ok" type="submit">${row ? 'Save changes' : tab === 'replacements' ? 'Log replacement' : 'Add vehicle'}</button>
+      <button class="btn" type="button" id="dr-cancel">Cancel</button>
+      ${row ? '<button class="btn no" type="button" id="dr-del">Delete</button>' : ''}</div></form>`;
+  $('#drawer').classList.remove('hidden'); $('#dr-bg').classList.remove('hidden');
+  const f = $('#dr-f');
+  $('#dr-x').onclick = $('#dr-cancel').onclick = $('#dr-bg').onclick = closeEditor;
+  if (row) {
+    $('#dr-del').onclick = () => deleteRow(tab, id);
+    api(`/api/ops/${tab}/${id}/history`).then(h => { const el = $('#dr-hist'); if (el) el.innerHTML = histHtml(h.history); }).catch(() => {});
+  }
+  if (tab === 'replacements') wireRepForm(f, !row);
+  f.onsubmit = e => { e.preventDefault(); saveRow(f); };
+  setTimeout(() => $('input:not([type=hidden])', f).focus(), 0);
+}
+
+function wireRepForm(f, isNew) {
+  const d = O.data, o = d.options, F = n => f.elements[n];
+  const info = () => {
+    const p = plateOf(F('plate').value), v = d.vehicles.find(x => x.plate === p);
+    const open = d.replacements.filter(x => plateOf(x.plate) === p && x.open && x.id !== O.edit.id);
+    $('#vinfo').innerHTML = !F('plate').value ? '' : v
+      ? `<b>${esc(v.swvl_no)}</b> · ${esc(v.driver)} · ${esc(v.contact)}<br>${esc(v.vehicle_type)} · ${esc(v.emirate)} · ${esc(v.vehicle_status)}`
+        + (open.length ? `<div class="warnline">Already in the workshop: ${open.map(x => `${esc(x.status)} since ${fdate(x.replacement_date || x.workshop_date)}`).join('; ')}. Edit that entry if it is the same visit.</div>` : '')
+      : '<div class="warnline">Not in the permanent vehicle directory. Check the plate, or add the vehicle first.</div>';
+    if (isNew && v) ['swvl_no', 'driver', 'contact', 'emirate', 'vehicle_type', 'vehicle_status'].forEach(k => { F(k).value = v[k]; });
+  };
+  // the status follows the supplier: AGT is a replacement, anyone else is out source
+  const syncStatus = () => {
+    const out = F('supplier').value.trim() && F('supplier').value.trim().toUpperCase() !== o.main_supplier.toUpperCase();
+    const st = F('status').value;
+    if (st.startsWith('Active')) F('status').value = out ? 'Active - Out Source' : 'Active';
+    else if (st === 'Returned' || st === 'Returned - Out Source') F('status').value = out ? 'Returned - Out Source' : 'Returned';
+    calc();
+  };
+  const calc = () => {
+    const w = F('workshop_date').value, pr = F('perm_return_date').value;
+    const days = w ? Math.round((new Date(pr || d.today) - new Date(w)) / 864e5) : null;
+    const sup = F('supplier').value.trim(), st = F('status').value;
+    const type = ['Vehicle Not Recovered - Replacement Not Provided', 'Reported To The Workshop - No Replacement'].includes(st) ? 'Reported To Workshop - No Replacement'
+      : !sup && !F('replacement').value.trim() ? 'Replacement Was Not Arranged' : sup.toUpperCase() === o.main_supplier.toUpperCase() ? 'Provided By AGT' : 'Out Source Replacement';
+    $('#f-calc').textContent = `${type}${days != null ? ` · ${days} workshop day${days === 1 ? '' : 's'}` : ''}`;
+  };
+  F('plate').oninput = info;
+  F('supplier').oninput = syncStatus;
+  ['status', 'workshop_date', 'perm_return_date', 'replacement'].forEach(n => F(n).addEventListener('input', calc));
+  $('#f-ret').onclick = () => {
+    const out = F('status').value.includes('Out Source') || (F('supplier').value.trim() && F('supplier').value.trim().toUpperCase() !== o.main_supplier.toUpperCase());
+    F('status').value = F('replacement').value.trim() ? (out ? 'Returned - Out Source' : 'Returned') : 'Returned From Workshop - Fixed';
+    if (!F('return_date').value && F('replacement').value.trim()) F('return_date').value = d.today;
+    if (!F('perm_return_date').value) F('perm_return_date').value = d.today;
+    calc();
+  };
+  info(); calc();
+}
+
+function histHtml(h) {
+  if (!h.length) return '<div class="muted">No changes yet.</div>';
+  const lbl = Object.fromEntries([...REP_COLS, ...VEH_COLS]);
+  return h.map(e => `<div class="hrow2"><div class="muted">${when(e.at)} · ${esc(e.user)} · ${esc(e.action)}</div>
+    ${e.action === 'edited' ? Object.entries(e.changes).map(([k, [a, b]]) => `<div>${esc(lbl[k] || k)}: <s>${esc(fdate(a) || 'empty')}</s> → <b>${esc(fdate(b) || 'empty')}</b></div>`).join('') : ''}</div>`).join('');
+}
+
+function closeEditor() {
+  O.edit = null;
+  $('#drawer').classList.add('hidden'); $('#dr-bg').classList.add('hidden');
+  $('#drawer').innerHTML = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && O.edit) closeEditor(); });
+
+async function saveRow(f) {
+  const msg = $('.msg', f), btn = $('button[type=submit]', f);
+  const body = Object.fromEntries(new FormData(f));
+  if (!body.plate.trim()) { showOpsMsg(msg, 'The plate number is required.'); f.elements.plate.focus(); return; }
+  body.updated_at = O.edit.updated_at;
+  btn.disabled = true;
+  try {
+    const { tab, id } = O.edit;
+    await opsPost(id ? `/api/ops/${tab}/${id}` : `/api/ops/${tab}`, body);
+    closeEditor();
+    await loadOps();
+  } catch (e) { showOpsMsg(msg, e.message); btn.disabled = false; }
+}
+
+async function deleteRow(tab, id) {
+  const r = (tab === 'replacements' ? O.data.replacements : O.data.vehicles).find(x => x.id === id);
+  if (!confirm(`Delete this ${tab === 'replacements' ? 'replacement entry' : 'vehicle'} (${r.plate})? It stays in the change history.`)) return;
+  try {
+    await opsPost(`/api/ops/${tab}/${id}/delete`);
+    closeEditor();
+    await loadOps();
+  } catch (e) { showOpsMsg($('#dr-f .msg'), e.message); }
+}
+
+function showOpsMsg(el, text) {
+  el.className = 'msg err'; el.textContent = text; el.hidden = false;
+  el.scrollIntoView({ block: 'nearest' });
 }
 
 boot();

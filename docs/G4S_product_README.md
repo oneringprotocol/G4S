@@ -103,7 +103,7 @@ The processed data (`*/v2/out/all_data*.json`) is included. To make UI or wordin
 | Run | accommodation to accommodation |
 | Trip matching | GPS departure within ±150 min of the plan; one GPS run may cover several chained planned trips |
 | Validated / Passed | Validated = stopped inside the geofence; Passed = drove through without stopping |
-| Maintenance records (`ops.json`) | Trips run by a replacement vehicle are marked "Run by replacement" and taken out of the vehicle's plan. Drives to or from the workshop are not counted as unplanned. |
+| Maintenance records (`ops.json`; in the web app, the Operations tab) | Trips run by a replacement vehicle are marked "Run by replacement" and taken out of the vehicle's plan. Drives to or from the workshop are not counted as unplanned. In the web app a replacement counts from its replacement date to the day before its return date. |
 
 ### Client wording (strict, the client sees this)
 - **Never** show "Operations Sheet", "Ops Sheet" or "G4S Operations Sheet". Use "records" or "maintenance records". `opsword.py` (`scrub()`) enforces this, and no "Adjusted for ..." badge is shown.

@@ -29,6 +29,7 @@
     <button class="tab" role="tab" id="tab-route" aria-selected="true" aria-controls="view-route">Route check</button>
     <button class="tab" role="tab" id="tab-mileage" aria-selected="false" aria-controls="view-mileage">Mileage &amp; excess use</button>
     <button class="tab hidden" role="tab" id="tab-fleet" aria-selected="false" aria-controls="view-fleet">Fleet</button>
+    <button class="tab hidden" role="tab" id="tab-ops" aria-selected="false" aria-controls="view-ops">Operations</button>
   </nav>
 </header>
 
@@ -98,6 +99,13 @@
       <div class="frows" id="f-rows"></div>
     </aside>
   </div>
+</main>
+
+<!-- internal ops data keeps its own wording (plate codes, agreement numbers, statuses): data-raw skips the wording guard -->
+<main id="view-ops" class="hidden" role="tabpanel" aria-labelledby="tab-ops" data-raw>
+  <div class="ops" id="ops"></div>
+  <div class="drawer-bg hidden" id="dr-bg"></div>
+  <aside class="drawer hidden" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-h"></aside>
 </main>
 
 <script src="vendor/leaflet.js"></script>

@@ -59,6 +59,8 @@ def init():
             vehicle TEXT NOT NULL,
             PRIMARY KEY(user_id, vehicle));
         """)
+        if "ops" not in [r["name"] for r in con.execute("PRAGMA table_info(users)")]:
+            con.execute("ALTER TABLE users ADD COLUMN ops INTEGER NOT NULL DEFAULT 0")   # 1 = operations team
     if not admin_exists():
         log.warning("No admin account yet. Open %s/setup and use setup code: %s", config.BASE_URL, setup_code())
 
@@ -120,7 +122,7 @@ def admin_exists():
 
 
 def public(u):
-    return {k: u[k] for k in ("id", "email", "name", "company", "phone", "role", "status", "created_at", "decided_at", "last_login")}
+    return {k: u[k] for k in ("id", "email", "name", "company", "phone", "role", "status", "created_at", "decided_at", "last_login", "ops")}
 
 
 class AuthError(Exception):
@@ -260,6 +262,19 @@ def set_vehicles(uid, vehicles):
         con.execute("DELETE FROM user_vehicles WHERE user_id=?", (uid,))
         con.executemany("INSERT INTO user_vehicles(user_id, vehicle) VALUES(?,?)",
                         [(uid, str(v)) for v in sorted(set(vehicles))])
+
+
+def can_ops(u):
+    """The Operations tab (internal vehicle directory and replacement log): admin and the operations team."""
+    return u["role"] == "admin" or bool(u.get("ops"))
+
+
+def set_ops(uid, on):
+    u = user_by_id(uid)
+    if not u or u["role"] == "admin":
+        raise AuthError("Account not found.", 404)
+    with _db() as con:
+        con.execute("UPDATE users SET ops=? WHERE id=?", (1 if on else 0, uid))
 
 
 # ---------- sign in and sessions ----------

@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import quote
 
-from . import auth, config, roads
+from . import auth, config, ops, roads
 from .analysis import VehicleAnalysis
 from .geo import UAE, day_label
 from .plan import load_plan
@@ -27,6 +27,7 @@ log = logging.getLogger("g4s")
 app = FastAPI(title="G4S fleet route audit")
 app.add_middleware(GZipMiddleware, minimum_size=2000)
 auth.init()
+ops.init()
 
 # Open without signing in. Everything else needs an approved account; /admin needs the admin.
 PUBLIC = ("/login", "/signup", "/setup", "/auth/", "/vendor/", "/app.css", "/auth.js")
@@ -49,6 +50,8 @@ async def gate(request: Request, call_next):
         return RedirectResponse("/login?next=" + quote(nxt, safe=""), 303)
     if path.startswith("/admin") and user["role"] != "admin":
         return JSONResponse({"detail": "Admin only."}, 403) if is_api else RedirectResponse("/", 303)
+    if path.startswith("/api/ops") and not auth.can_ops(user):
+        return JSONResponse({"detail": "The Operations tab is for the operations team."}, 403)
     request.state.user = user
     return await call_next(request)
 
@@ -99,7 +102,7 @@ class State:
         self.vehicles, self.sites = load_plan()
         self.source = _source()
         self.devices = {d.vehicle: d for d in self.source.devices()}
-        recs = json.loads((config.DATA / "records.json").read_text()).get("vehicles", {})
+        recs = _records()
         self.analysis = {}
         for vno, dev in self.devices.items():
             veh = self.vehicles.get(vno)
@@ -135,6 +138,29 @@ class State:
                     self.extra.popitem(last=False)
             self.extra.move_to_end(key)
             return self.extra[key]
+
+
+    def reload_records(self):
+        """After the Operations tab changes a replacement: new records for the vehicles affected,
+        so Run by replacement shows on the next page load without a GPS refresh."""
+        recs = _records()
+        changed = {v for v in set(recs) | set(self.recs) if recs.get(v) != self.recs.get(v)}
+        self.recs = recs
+        with self.extra_lock:
+            targets = [(v, a) for v, a in self.analysis.items()] + [(k[0], a) for k, a in self.extra.items() if a]
+        for vno, a in targets:
+            if vno in changed:
+                a.records = recs.get(vno, [])
+                a._day_cache = {}
+
+
+def _records():
+    """Maintenance records by vehicle: data/records.json plus the replacement log of the Operations tab."""
+    recs = json.loads((config.DATA / "records.json").read_text()).get("vehicles", {})
+    out = {v: list(rs) for v, rs in recs.items()}
+    for v, rs in ops.records().items():
+        out.setdefault(v, []).extend(rs)
+    return out
 
 
 ON_DEMAND_KEEP = 40   # dates fetched on demand kept in memory; Refresh clears them
@@ -392,8 +418,63 @@ def do_logout(request: Request):
 def me(request: Request):
     u = request.state.user
     allowed = _allowed(request)
-    return {"email": u["email"], "name": u["name"], "role": u["role"],
+    return {"email": u["email"], "name": u["name"], "role": u["role"], "ops": auth.can_ops(u),
             "vehicles": "all" if allowed is None else sorted(allowed)}
+
+
+# ---------- operations tab (ops team: vehicle directory and replacement log) ----------
+def _ops_changed(tab):
+    if tab == "replacements" and _state is not None:
+        _state.reload_records()
+
+
+@app.get("/api/ops")
+def ops_data():
+    return ops.snapshot()
+
+
+@app.get("/api/ops/{tab}/{rid}/history")
+def ops_history(tab: str, rid: int):
+    try:
+        return {"history": ops.history(tab, rid)}
+    except ops.OpsError as e:
+        return _err(e)
+
+
+@app.post("/api/ops/{tab}")
+def ops_create(tab: str, request: Request, body: dict = Body(...)):
+    if tab not in ops.TABLES:
+        raise HTTPException(404)
+    try:
+        row = ops.create(tab, body, request.state.user["email"])
+    except ops.OpsError as e:
+        return _err(e)
+    _ops_changed(tab)
+    return {"ok": True, "id": row["id"]}
+
+
+@app.post("/api/ops/{tab}/{rid}")
+def ops_update(tab: str, rid: int, request: Request, body: dict = Body(...)):
+    if tab not in ops.TABLES:
+        raise HTTPException(404)
+    try:
+        ops.update(tab, rid, body, request.state.user["email"])
+    except ops.OpsError as e:
+        return _err(e)
+    _ops_changed(tab)
+    return {"ok": True, "id": rid}
+
+
+@app.post("/api/ops/{tab}/{rid}/delete")
+def ops_delete(tab: str, rid: int, request: Request):
+    if tab not in ops.TABLES:
+        raise HTTPException(404)
+    try:
+        ops.delete(tab, rid, request.state.user["email"])
+    except ops.OpsError as e:
+        return _err(e)
+    _ops_changed(tab)
+    return {"ok": True}
 
 
 @app.get("/admin/api/users")
@@ -418,6 +499,15 @@ def admin_vehicles(uid: int, body: dict = Body(...)):
     except auth.AuthError as e:
         return _err(e)
     return {"ok": True, "vehicles": sorted(vs)}
+
+
+@app.post("/admin/api/users/{uid}/ops")
+def admin_ops(uid: int, body: dict = Body(...)):
+    try:
+        auth.set_ops(uid, body.get("ops") is True)
+    except auth.AuthError as e:
+        return _err(e)
+    return {"ok": True}
 
 
 @app.post("/admin/api/users/{uid}/password")
