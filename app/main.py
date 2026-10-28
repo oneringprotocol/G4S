@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import quote
 
-from . import auth, config
+from . import auth, config, roads
 from .analysis import VehicleAnalysis
 from .geo import UAE, day_label
 from .plan import load_plan
@@ -95,6 +95,7 @@ def _source():
 
 class State:
     def __init__(self):
+        roads.start()   # highway data for the stops outside geofences, loads in the background
         self.vehicles, self.sites = load_plan()
         self.source = _source()
         self.devices = {d.vehicle: d for d in self.source.devices()}

@@ -13,6 +13,7 @@ from . import config as C
 from .geo import UAE, day_key, day_label, dist_m, hhmm, local
 from .gapfill import GapFiller
 from .plan import SiteIndex, Vehicle
+from . import roads
 from .sources.base import GpsPoint
 
 
@@ -104,7 +105,7 @@ class VehicleAnalysis:
         self.stops = _stops(pts)
         self.runs = self._runs()
         self.days = sorted({day_key(p.t) for p in pts})
-        self._day_cache = {}
+        self._day_cache, self._roads_v = {}, roads.version
 
     def _runs(self):
         pts, home = self.pts, self.at_home
@@ -159,6 +160,8 @@ class VehicleAnalysis:
 
     # ---------- one day ----------
     def day(self, key):
+        if self._roads_v != roads.version:   # road data just loaded: outside stops change
+            self._day_cache, self._roads_v = {}, roads.version
         if key not in self._day_cache:
             self._day_cache[key] = self._day(key)
         return self._day_cache[key]
@@ -305,6 +308,8 @@ class VehicleAnalysis:
                 continue
             if self.site_at[s["i0"]] is not None or self.at_home[s["i0"]]:
                 continue
+            if s["t1"] - s["t0"] < C.HIGHWAY_STOP_MAX_S and roads.road_kind(s["lat"], s["lon"]):
+                continue   # traffic on a highway, highway exit or highway roundabout
             ns, nd = S.nearest(s["lat"], s["lon"])
             run = self._run_at(s["t0"])
             outside.append({"n": len(outside) + 1, "t0": s["t0"], "time": hhmm(s["t0"]),

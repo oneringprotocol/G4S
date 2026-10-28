@@ -127,6 +127,7 @@ app/
   plan.py          Sheet1 + Geofence Directory parser
   gapfill.py       fills GPS gaps with an estimated track before the analysis runs
   analysis.py      stops, runs, trip matching, stop status, km, outside stops, speeding, idling, replay events
+  roads.py         road type at short stops: highway, highway exit, highway roundabout (UAE road data from OpenStreetMap, cached 30 days)
   routes.py        planned route lines and estimated gap paths (OSRM road geometry, cached; straight lines offline)
   sources/         GPS sources: xlsx_source.py (exports), totalsecure_source.py (API)
 web/               index.html, app.css, app.js, vendor/leaflet
@@ -142,6 +143,10 @@ tests/shots.py     Playwright check: no page errors, no banned wording, no horiz
   - If the bus moved, the planned sites due in that time that the GPS never shows are placed on the OSRM road path from the last fix to the next, in the order that drives the least. A site is kept only while the path still fits the odometer km: road km × 0.7 must be at most the odometer km, because the odometer reads about 15% under OSRM here. The bus waits at the start, drives at its usual speed and stops 3 min (`EST_DWELL_S`) at each site.
   - The analysis then treats these as ordinary stops. Estimated stop times show with **≈**, and the estimated path is a dotted orange line on the map.
   - Km is unchanged, because it still comes from the odometer.
+- **Stops outside geofences** are stops of 2 min or more away from every site and the accommodation. A stop under 3 min (`HIGHWAY_STOP_MAX_S`) is left out when it is on a highway or a highway exit, or on a roundabout with a highway or exit within 300 m. That is traffic, not a chosen stop:
+  - "Highway" means an OpenStreetMap motorway or trunk road, and "exit" means a motorway or trunk link, each within 30 m of the stop.
+  - `app/roads.py` downloads every motorway, trunk road, exit and roundabout in the UAE from OpenStreetMap (Overpass API) in the background on start. The download takes about 4 min and is kept in `data/cache/highways.json` (about 7 MB) for 30 days.
+  - Until the road data is ready, or with no network, nothing is left out. The day results are worked out again once it loads, and a failed download retries every 10 min.
 - **Out of window** means the bus stopped at the site, but more than 30 min outside the planned time or on a different run.
 - **Trip matching:**
   - A run matches a planned trip when its departure is within ±150 min of the plan time.

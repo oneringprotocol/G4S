@@ -97,7 +97,7 @@ The processed data (`*/v2/out/all_data*.json`) is included. To make UI or wordin
 | GPS timestamps | UTC in the export; **+4 h** is added (UAE time) |
 | Stop | speed of 3 km/h or less for 30 s or more |
 | Geofence radius | 300 m (accommodation 400 m) |
-| Stop outside geofences | 2 min or more away from every known site |
+| Stop outside geofences | 2 min or more away from every known site. Stops under 3 min on a highway, a highway exit or a roundabout at a highway are left out as traffic (road type from OpenStreetMap) |
 | Parking | 20 min or more |
 | Speeding | over 100 km/h |
 | Run | accommodation to accommodation |
