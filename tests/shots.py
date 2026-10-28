@@ -10,7 +10,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
+BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:3000"
 OUT = Path(sys.argv[2] if len(sys.argv) > 2 else "tests/out")
 OUT.mkdir(parents=True, exist_ok=True)
 BANNED = re.compile(r"operations sheet|ops sheet|\bdepot\b|\byard\b|sheet ?1|not confirmed|after hours|no gps data|[A-Za-z]-[A-Za-z]|[A-Za-z]'[A-Za-z]", re.I)

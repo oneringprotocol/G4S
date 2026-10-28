@@ -1,7 +1,7 @@
 """G4S fleet route audit, web app.
 
-Run:  python3 -m uvicorn app.main:app --port 8000   (from the project folder)
-Open: http://localhost:8000
+Run:  python3 -m uvicorn app.main:app --port 3000   (from the project folder)
+Open: http://localhost:3000
 """
 import json
 import logging

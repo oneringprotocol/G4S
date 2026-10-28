@@ -5,8 +5,8 @@ This is the web version of the fleet route audit. It follows `G4S_product_DESIGN
 ## Run
 
 ```bash
-./run.sh                 # installs fastapi, uvicorn, openpyxl, then serves http://localhost:8000
-G4S_TEST_EMAIL=... G4S_TEST_PASSWORD=... python3 tests/shots.py http://localhost:8000 tests/out   # headless walk-through (Brave or Chrome)
+./run.sh                 # installs fastapi, uvicorn, openpyxl, then serves http://localhost:3000
+G4S_TEST_EMAIL=... G4S_TEST_PASSWORD=... python3 tests/shots.py http://localhost:3000 tests/out   # headless walk-through (Brave or Chrome)
 ```
 
 The first start parses the GPS export, which takes about 8 s, and caches it in `data/cache/`. Later starts take about 1 s.

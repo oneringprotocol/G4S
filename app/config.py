@@ -37,7 +37,7 @@ TS_TO = os.environ.get("G4S_TS_TO", "")             # both ends included
 # Accounts and email. SMTP settings come from the environment (see docs/APP.md);
 # without them, emails are written to data/outbox/ instead of being sent.
 ADMIN_EMAIL = os.environ.get("G4S_ADMIN_EMAIL", "oneringprotocol@gmail.com").lower()
-BASE_URL = os.environ.get("G4S_BASE_URL", "http://localhost:8000").rstrip("/")
+BASE_URL = os.environ.get("G4S_BASE_URL", "http://localhost:3000").rstrip("/")
 DB_FILE = DATA / "app.db"
 OUTBOX = DATA / "outbox"
 SESSION_DAYS = 7
