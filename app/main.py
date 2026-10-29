@@ -34,6 +34,17 @@ PUBLIC = ("/login", "/signup", "/setup", "/auth/", "/vendor/", "/app.css", "/aut
 
 
 @app.middleware("http")
+async def no_stale_code(request: Request, call_next):
+    # the browser checks app.js, app.css and the pages on every load (a quick 304 when unchanged),
+    # so an update shows on the next reload instead of the old cached copy
+    resp = await call_next(request)
+    path = request.url.path
+    if path.endswith((".js", ".css", ".html")) and not path.startswith("/vendor/"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.middleware("http")
 async def gate(request: Request, call_next):
     path = request.url.path
     # CSRF: browsers only send this custom header from our own pages

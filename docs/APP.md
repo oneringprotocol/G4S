@@ -12,6 +12,8 @@ G4S_TEST_EMAIL=... G4S_TEST_PASSWORD=... python3 tests/shots.py http://localhost
 
 `run.sh` exits with a note when the app is already running, so a second start never clashes on the port. With the service installed, use `scripts/service.sh restart` after code changes, `status` to check it and `uninstall` to remove it. The service writes its log to `data/cache/server.log`.
 
+Pages, `app.js` and `app.css` are sent with `Cache-Control: no-cache`, so browsers check for a newer copy on every load and pick up an update after a restart without a hard refresh. `vendor/` (Leaflet) stays cached.
+
 The first start parses the GPS export, which takes about 8 s, and caches it in `data/cache/`. Later starts take about 1 s.
 
 ## Accounts
