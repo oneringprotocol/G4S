@@ -177,13 +177,13 @@ function fillVehicleSelect() {
   $('#vsel').value = S.vehicle;
 }
 
-/* ---------- date picker: this month and last month only ---------- */
+/* ---------- date picker: this month and the 2 months before it ---------- */
 const CAL = { month: null };   // 'YYYY-MM' shown in the calendar
 const isoDay = d => d.toISOString().slice(0, 10);
 const dayDate = k => new Date(k + 'T00:00:00Z');
 const nextKey = (k, n) => isoDay(new Date(dayDate(k).getTime() + n * 864e5));
 const todayKey = () => S.meta.calendar.to;           // UAE today, from the server
-const calRange = () => S.meta.calendar;              // previous month and this month, up to today
+const calRange = () => S.meta.calendar;              // this month and the 2 months before it, up to today
 const isLoaded = (k, v = vmeta()) => v.days.some(d => d.day === k);
 function pickable(v = vmeta()) {   // dates the calendar offers, oldest first
   const r = calRange();
@@ -223,7 +223,7 @@ function renderCal() {
       <button class="dnav" data-m="1" aria-label="Next month" ${CAL.month >= r.to.slice(0, 7) ? 'disabled' : ''}>›</button>
     </div>
     <div class="calg">${['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(w => `<span class="wd">${w}</span>`).join('')}${cells.join('')}</div>
-    <div class="caln">${calRange().on_demand ? 'Any date in this month or last month. Dates not loaded yet come from Total Secure.' : 'Dates with GPS in this month and last month.'}</div>`;
+    <div class="caln">${calRange().on_demand ? 'Any date in this month or the 2 months before it. Dates not loaded yet come from Total Secure.' : 'Dates with GPS in this month and the 2 months before it.'}</div>`;
 }
 
 function openCal() {
@@ -847,25 +847,42 @@ document.addEventListener('keydown', e => {
 });
 
 /* ================= MILEAGE & EXCESS USE ================= */
-const M = { vehicle: 'all', emirate: 'all', mode: 'daily', period: null, data: null, focus: null };
+const M = { vehicle: 'all', emirate: 'all', mode: 'daily', from: '', to: '', period: null, data: null, focus: null, timer: 0, pop: null };
+const MODES = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', custom: 'Custom' };
+const MODE_NOTE = { daily: 'last 7 days', weekly: 'last 4 weeks', monthly: 'this month and the 2 before it', custom: 'custom dates' };
 const VAL_OPTS = ['to validate', 'Approved, passenger pick up / drop off', 'Approved, client errand', 'Approved, fuel / rest break', 'Not authorised', 'Need more information'];
 const valStore = () => store.get('g4s_oz_validation', {});
 
-async function loadMileage() {
+async function loadMileage(quiet) {
   const el = $('#mx');
+  clearTimeout(M.timer);
   if (!M.data) el.innerHTML = '<div class="loading">Loading data…</div>';
+  const span = M.mode === 'custom' ? `&from=${M.from}&to=${M.to}` : '';
   try {
-    M.data = await api(`/api/mileage?vehicle=${M.vehicle}&emirate=${encodeURIComponent(M.emirate)}&mode=${M.mode}`);
-  } catch (e) { el.innerHTML = `<div class="empty">Could not load mileage: ${esc(e.message)}</div>`; return; }
+    M.data = await api(`/api/mileage?vehicle=${M.vehicle}&emirate=${encodeURIComponent(M.emirate)}&mode=${M.mode}${span}`);
+  } catch (e) { if (!quiet) el.innerHTML = `<div class="empty">Could not load mileage: ${esc(e.message)}</div>`; return; }
+  if (M.period && !M.data.bars.some(b => b.key === M.period.key)) M.period = null;
+  if (quiet && (M.pop || el.contains(document.activeElement) && document.activeElement.matches('input,select'))) {
+    drawChart(); scheduleMileage(); return;   // keep the custom picker or a typed comment as they are
+  }
   renderMileage();
+  scheduleMileage();
+}
+
+// older days load in the background on the server: ask again until they are all in
+function scheduleMileage() {
+  clearTimeout(M.timer);
+  if (M.data && M.data.loading) M.timer = setTimeout(() => { if (S.tab === 'mileage') loadMileage(true); }, 5000);
 }
 
 function inPeriod(day) {
-  if (!M.period) return true;
-  if (M.mode === 'daily') return day === M.period.key;
-  if (M.mode === 'monthly') return day.slice(0, 7) === M.period.key;
-  const d = new Date(day + 'T00:00:00Z'), k = new Date(M.period.key + 'T00:00:00Z');
-  return d >= k && d < new Date(k.getTime() + 7 * 864e5);
+  return !M.period || (day >= M.period.from && day <= M.period.to);
+}
+
+const shortDay = k => { const d = dayDate(k); return `${d.getUTCDate()} ${MO[d.getUTCMonth()]}`; };
+function rangeText() {
+  const r = M.data.range;
+  return `${MODE_NOTE[r.mode]} · ${shortDay(r.from)} to ${shortDay(r.to)}`;
 }
 
 function renderMileage() {
@@ -895,11 +912,14 @@ function renderMileage() {
         <span class="tl neg">${fmtMin(t.outside_min)} in total</span><span class="tl ${reviewed === t.outside && t.outside ? 'pos' : ''}">${reviewed} reviewed</span><span class="tl">Open table ↗</span></div>
     </div>
     <div class="card">
-      <div class="ch"><h3>Actual km by ${M.mode === 'daily' ? 'day' : M.mode === 'weekly' ? 'week' : 'month'}</h3>
-        <div class="r"><div class="seg" role="group" aria-label="Period">${['daily', 'weekly', 'monthly'].map(m => `<button class="sbtn${M.mode === m ? ' on' : ''}" data-m="${m}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}</div></div></div>
+      <div class="ch"><h3>Actual km by ${M.mode === 'weekly' ? 'week' : M.mode === 'monthly' ? 'month' : 'day'}</h3><span class="muted">${rangeText()}</span>
+        <div class="r pwrap"><div class="seg" role="group" aria-label="Period">${Object.entries(MODES).map(([m, l]) =>
+          `<button class="sbtn${M.mode === m ? ' on' : ''}" data-m="${m}"${m === 'custom' ? ' aria-haspopup="dialog"' : ''}>${l}${m === 'custom' && M.mode === 'custom' ? ' · ' + shortDay(M.from) + ' to ' + shortDay(M.to) : ''}</button>`).join('')}</div>
+          <div class="cpop hidden" id="cpop" role="dialog" aria-label="Custom dates"></div></div></div>
+      ${d.loading ? `<div class="msg info">Loading older GPS from Total Secure: ${d.loading} vehicle day${d.loading === 1 ? '' : 's'} to go. The chart fills in as they arrive.</div>` : ''}
       <div class="chart" id="chart"></div>
       <div class="clegend"><span><i style="background:${css('--x2-svc')}"></i>Planned trips</span><span><i style="background:${css('--x2-unp')}"></i>Unplanned trips</span><span><i style="background:${css('--x2-yard')}"></i>Accommodation moves and other</span></div>
-      <div class="note">Click a bar to filter the tables below to that period.</div>
+      <div class="note">Click a bar to filter the tables below to that period. The Total column is the whole period, on its own scale.</div>
     </div>
     ${M.period ? `<div style="margin-bottom:10px"><span class="fchip">Showing ${esc(M.period.label)} <button id="clr" aria-label="Clear filter">✕</button></span></div>` : ''}
     ${unplannedTable(d.unplanned.filter(r => inPeriod(r.day)))}
@@ -909,7 +929,10 @@ function renderMileage() {
   $('#mx-e').value = M.emirate;
   $('#mx-v').onchange = e => { M.vehicle = e.target.value; M.period = null; loadMileage(); };
   $('#mx-e').onchange = e => { M.emirate = e.target.value; M.period = null; loadMileage(); };
-  $$('#mx .seg .sbtn').forEach(b => b.onclick = () => { M.mode = b.dataset.m; M.period = null; loadMileage(); });
+  $$('#mx .seg .sbtn').forEach(b => b.onclick = () => {
+    if (b.dataset.m === 'custom') { openCustom(); return; }
+    M.mode = b.dataset.m; M.period = null; closeCustom(); loadMileage();
+  });
   $$('#mx .tile.click').forEach(el => { const go = () => $(el.dataset.go).scrollIntoView({ behavior: 'smooth' }); el.onclick = go; el.onkeydown = e => { if (e.key === 'Enter') go(); }; });
   if ($('#clr')) $('#clr').onclick = () => { M.period = null; renderMileage(); };
   $$('#mx .kmbtn').forEach(b => b.onclick = () => openRoute(b.dataset.v, b.dataset.d, () => startReplayAt(+b.dataset.t)));
@@ -988,49 +1011,130 @@ function downloadCsv() {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+/* ---------- custom period: from and to, each with its own calendar ---------- */
+function openCustom() {
+  const w = M.data.window, today = w.to;
+  M.pop = { from: M.from || nextKey(today, -6), to: M.to || today, open: null, month: null };
+  renderCustom();
+  $('#cpop').classList.remove('hidden');
+}
+function closeCustom() { M.pop = null; const p = $('#cpop'); if (p) { p.classList.add('hidden'); p.innerHTML = ''; } }
+
+function renderCustom() {
+  const P = M.pop, w = M.data.window, max = w.custom_max_days;
+  const days = Math.round((dayDate(P.to) - dayDate(P.from)) / 864e5);
+  const err = !P.from || !P.to ? 'Choose both dates.' : P.from > P.to ? 'The from date is after the to date.'
+    : days > max ? `Choose dates no more than ${max} days apart.` : '';
+  const btn = (k, l) => `<div class="cfield"><span>${l}</span><button class="dbtn${P.open === k ? ' on' : ''}" data-open="${k}" aria-expanded="${P.open === k}">${CAL_ICON} ${P[k] ? dayLabel(P[k]) : 'Choose'}</button></div>`;
+  $('#cpop').innerHTML = `<div class="cfields">${btn('from', 'From')}${btn('to', 'To')}</div>
+    ${P.open ? `<div class="cal ccal" id="ccal"></div>` : ''}
+    <div class="caln">${err ? `<span class="neg">${err}</span>` : `${days + 1} day${days ? 's' : ''} · up to ${max + 1} days, from ${shortDay(w.from)} to today`}</div>
+    <div class="btnrow"><button class="btn ok" id="c-apply" ${err ? 'disabled' : ''}>Show</button><button class="btn" id="c-cancel">Cancel</button></div>`;
+  $$('#cpop [data-open]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    P.open = P.open === b.dataset.open ? null : b.dataset.open;
+    P.month = (P[P.open] || w.to).slice(0, 7);
+    renderCustom();
+  });
+  $('#c-cancel').onclick = closeCustom;
+  $('#c-apply').onclick = () => { M.mode = 'custom'; M.from = P.from; M.to = P.to; M.period = null; closeCustom(); loadMileage(); };
+  if (P.open) miniCal($('#ccal'));
+}
+
+// one month grid for the open field; days outside the allowed range are disabled
+function miniCal(el) {
+  const P = M.pop, w = M.data.window, max = w.custom_max_days, k = P.open;
+  let lo = w.from, hi = w.to;
+  if (k === 'to' && P.from) { lo = P.from; hi = [w.to, nextKey(P.from, max)].sort()[0]; }
+  const [y, m] = P.month.split('-').map(Number);
+  const first = new Date(Date.UTC(y, m - 1, 1)), n = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const prev = isoDay(new Date(Date.UTC(y, m - 2, 1))).slice(0, 7), next = isoDay(new Date(Date.UTC(y, m, 1))).slice(0, 7);
+  let cells = WD.map(d => `<span class="wd">${d.slice(0, 2)}</span>`).join('') + '<span></span>'.repeat(first.getUTCDay());
+  for (let i = 1; i <= n; i++) {
+    const key = `${P.month}-${String(i).padStart(2, '0')}`, ok = key >= lo && key <= hi;
+    const inr = P.from && P.to && key >= P.from && key <= P.to;
+    cells += `<button class="cd${key === P[k] ? ' on' : inr ? ' inr' : ''}${key === w.to ? ' today' : ''}" data-k="${key}" ${ok ? '' : 'disabled'}>${i}</button>`;
+  }
+  el.innerHTML = `<div class="calh"><button class="dnav" data-mo="${prev}" ${prev < w.from.slice(0, 7) ? 'disabled' : ''} aria-label="Previous month">‹</button>
+    <b>${MO[m - 1]} ${y}</b><button class="dnav" data-mo="${next}" ${next > w.to.slice(0, 7) ? 'disabled' : ''} aria-label="Next month">›</button></div>
+    <div class="calg">${cells}</div>`;
+  $$('[data-mo]', el).forEach(b => b.onclick = e => { e.stopPropagation(); P.month = b.dataset.mo; miniCal(el); });
+  $$('.cd[data-k]', el).forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    P[k] = b.dataset.k;
+    P.open = k === 'from' && (!P.to || P.to < P.from || Math.round((dayDate(P.to) - dayDate(P.from)) / 864e5) > max) ? 'to' : null;
+    if (P.open === 'to') { P.to = ''; P.month = P.from.slice(0, 7); }
+    renderCustom();
+  });
+}
+document.addEventListener('click', e => { if (M.pop && !e.composedPath().some(n => n.classList && (n.classList.contains('cpop') || n.dataset && n.dataset.m === 'custom'))) closeCustom(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && M.pop) closeCustom(); });
+
 function drawChart() {
   const el = $('#chart');
   if (!el || !M.data) return;
-  const bars = M.data.bars, W = Math.max(el.clientWidth, 300), H = 260, pl = 44, pr = 10, pt = 22, pb = 30;
-  if (!bars.length) { el.innerHTML = '<div class="empty">No GPS in this selection.</div>'; return; }
+  const bars = M.data.bars, t = M.data.totals, W = Math.max(el.clientWidth, 300), H = 260, pl = 44, pt = 22, pb = 30;
+  const tw = W < 520 ? 74 : 104;          // the Total column on the right, on its own scale
+  const pr = tw + 14, plotW = W - pl - pr;
+  if (!bars.some(b => b.gps_days)) { el.innerHTML = `<div class="empty">${M.data.loading ? 'Loading GPS for this period…' : 'No GPS in this period.'}</div>`; return; }
   const max = Math.max(...bars.map(b => b.planned + b.unplanned + b.other), 1);
   const step = Math.pow(10, Math.floor(Math.log10(max))) * (max / Math.pow(10, Math.floor(Math.log10(max))) > 5 ? 2 : 1);
   const top = Math.ceil(max / step) * step;
   const y = v => pt + (H - pt - pb) * (1 - v / top);
-  const bw = Math.min(64, (W - pl - pr) / bars.length * .62), gap = (W - pl - pr) / bars.length;
+  const gap = plotW / bars.length, bw = Math.min(64, gap * .62);
   const col = { planned: css('--x2-svc'), unplanned: css('--x2-unp'), other: css('--x2-yard') };
-  let svg = '';
-  for (let v = 0; v <= top; v += step) svg += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" stroke="${css('--line')}"/><text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="${css('--ink-3')}">${fmt(v, 0)}</text>`;
-  bars.forEach((b, i) => {
-    const x = pl + gap * i + (gap - bw) / 2;
-    let base = 0;
-    const segs = ['planned', 'unplanned', 'other'].filter(k => b[k] > 0);
+  const KS = ['planned', 'unplanned', 'other'];
+  const stack = (b, x, w, yy, labels) => {   // one stacked bar; returns its svg
+    let out = '', base = 0;
+    const segs = KS.filter(k => b[k] > 0);
     segs.forEach((k, j) => {
-      const y0 = y(base), y1 = y(base + b[k]), h = y0 - y1, isTop = j === segs.length - 1;
-      svg += isTop
-        ? `<path d="M${x},${y0}V${y1 + 4}q0,-4 4,-4h${bw - 8}q4,0 4,4V${y0}Z" fill="${col[k]}"/>`
-        : `<rect x="${x}" y="${y1}" width="${bw}" height="${h}" fill="${col[k]}"/>`;
-      if (h > 16 && bw > 30) svg += `<text x="${x + bw / 2}" y="${y1 + h / 2 + 4}" text-anchor="middle" font-size="12" font-weight="700" fill="#1a1a19">${fmt(b[k], 0)}</text>`;
+      const y0 = yy(base), y1 = yy(base + b[k]), h = y0 - y1;
+      out += j === segs.length - 1
+        ? `<path d="M${x},${y0}V${y1 + Math.min(4, h)}q0,-${Math.min(4, h)} 4,-${Math.min(4, h)}h${w - 8}q4,0 4,${Math.min(4, h)}V${y0}Z" fill="${col[k]}"/>`
+        : `<rect x="${x}" y="${y1}" width="${w}" height="${h}" fill="${col[k]}"/>`;
+      if (labels && h > 16 && w > 30) out += `<text x="${x + w / 2}" y="${y1 + h / 2 + 4}" text-anchor="middle" font-size="12" font-weight="700" fill="#1a1a19">${fmt(b[k], 0)}</text>`;
       base += b[k];
     });
+    return out;
+  };
+  const every = Math.ceil(46 / gap);       // thin out the day labels when the bars are narrow
+  let svg = '';
+  for (let v = 0; v <= top; v += step) svg += `<line x1="${pl}" x2="${pl + plotW}" y1="${y(v)}" y2="${y(v)}" stroke="${css('--line')}"/><text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="${css('--ink-3')}">${fmt(v, 0)}</text>`;
+  bars.forEach((b, i) => {
+    const x = pl + gap * i + (gap - bw) / 2, sum = b.planned + b.unplanned + b.other;
     const sel = M.period && M.period.key === b.key;
-    svg += `<text x="${x + bw / 2}" y="${y(base) - 6}" text-anchor="middle" font-size="11.5" font-weight="${sel ? 800 : 600}" fill="${css('--ink-2')}">${fmt(base, 0)}</text>`;
-    svg += `<text x="${x + bw / 2}" y="${H - 10}" text-anchor="middle" font-size="11.5" font-weight="${sel ? 800 : 500}" fill="${css(sel ? '--ink' : '--ink-2')}">${esc(b.label.replace('Week of ', 'Wk '))}</text>`;
+    svg += stack(b, x, bw, y, true);
+    if (b.gps_days && gap >= 30) svg += `<text x="${x + bw / 2}" y="${y(sum) - 6}" text-anchor="middle" font-size="11.5" font-weight="${sel ? 800 : 600}" fill="${css('--ink-2')}">${fmt(sum, 0)}</text>`;
+    else if (!b.gps_days) svg += `<text x="${x + bw / 2}" y="${y(0) - 6}" text-anchor="middle" font-size="10.5" fill="${css('--ink-3')}">${gap >= 44 ? 'no GPS' : '–'}</text>`;
+    const lbl = M.data.range.mode === 'weekly' ? 'Wk ' + shortDay(b.key)
+      : M.data.range.mode === 'monthly' ? (gap >= 110 ? b.label : MO[+b.key.slice(5) - 1] + ' ' + b.key.slice(0, 4))
+      : gap >= 64 ? b.label : shortDay(b.key);
+    if (i % every === 0) svg += `<text x="${x + bw / 2}" y="${H - 10}" text-anchor="middle" font-size="11.5" font-weight="${sel ? 800 : 500}" fill="${css(sel ? '--ink' : '--ink-2')}">${esc(lbl)}</text>`;
     svg += `<rect class="hit" data-i="${i}" x="${pl + gap * i}" y="${pt}" width="${gap}" height="${H - pt}" fill="transparent" style="cursor:pointer"/>`;
   });
-  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Actual km by period">${svg}</svg><div class="svgtip hidden"></div>`;
+  // Total column: the whole period, scaled to its own height
+  const tx = W - tw, tbw = Math.min(56, tw - 24), tsum = t.planned + t.unplanned + t.other;
+  const ty = v => pt + (H - pt - pb) * (1 - v / Math.max(tsum, 1));
+  svg += `<line x1="${tx - 8}" x2="${tx - 8}" y1="${pt - 14}" y2="${H - 4}" stroke="${css('--line')}" stroke-dasharray="3 3"/>`;
+  svg += stack(t, tx + (tw - tbw) / 2, tbw, ty, true);
+  svg += `<text x="${tx + tw / 2}" y="${pt - 6}" text-anchor="middle" font-size="12" font-weight="800" fill="${css('--navy')}">${fmt(tsum, 0)} km</text>`;
+  svg += `<text x="${tx + tw / 2}" y="${H - 10}" text-anchor="middle" font-size="11.5" font-weight="700" fill="${css('--ink')}">Total</text>`;
+  svg += `<rect class="hit" data-i="total" x="${tx - 8}" y="${pt}" width="${tw + 8}" height="${H - pt}" fill="transparent" style="cursor:pointer"/>`;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Actual km by period, with the total for the whole period">${svg}</svg><div class="svgtip hidden"></div>`;
   const tip = $('.svgtip', el);
   $$('.hit', el).forEach(r => {
-    const b = bars[+r.dataset.i];
+    const isT = r.dataset.i === 'total';
+    const b = isT ? { label: 'Total · ' + rangeText(), planned: t.planned, unplanned: t.unplanned, other: t.other,
+      unplanned_trips: t.unplanned_trips, unplanned_min: M.data.bars.reduce((a, x) => a + x.unplanned_min, 0), gps_days: 1 } : bars[+r.dataset.i];
     r.onmousemove = e => {
       const box = el.getBoundingClientRect();
-      tip.innerHTML = `<b>${esc(b.label)}</b><br><span class="pl">${fmt(b.planned)} km planned trips</span><br><span class="neg">${fmt(b.unplanned)} km unplanned · ${b.unplanned_trips} trips · ${fmtMin(b.unplanned_min)}</span><br>${fmt(b.other)} km other moves`;
+      tip.innerHTML = `<b>${esc(b.label)}</b><br>${b.gps_days ? `<span class="pl">${fmt(b.planned)} km planned trips</span><br><span class="neg">${fmt(b.unplanned)} km unplanned · ${b.unplanned_trips} trips · ${fmtMin(b.unplanned_min)}</span><br>${fmt(b.other)} km other moves` : 'No GPS'}`;
       tip.classList.remove('hidden');
-      tip.style.left = Math.min(e.clientX - box.left + 12, box.width - tip.offsetWidth - 4) + 'px';
+      tip.style.left = Math.max(4, Math.min(e.clientX - box.left + 12, box.width - tip.offsetWidth - 4)) + 'px';
       tip.style.top = (e.clientY - box.top - 10) + 'px';
     };
     r.onmouseleave = () => tip.classList.add('hidden');
-    r.onclick = () => { M.period = M.period && M.period.key === b.key ? null : { key: b.key, label: b.label }; renderMileage(); };
+    r.onclick = () => { M.period = isT || (M.period && M.period.key === b.key) ? null : { key: b.key, label: b.label, from: b.from, to: b.to }; renderMileage(); };
   });
 }
 addEventListener('resize', () => { if (S.tab === 'mileage') drawChart(); });

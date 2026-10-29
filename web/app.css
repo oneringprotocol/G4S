@@ -430,3 +430,17 @@ th:first-child,td:first-child{text-align:left}
 .opsflag{display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:12.5px;color:var(--ink-2);cursor:pointer}
 .opsflag input{margin:2px 0 0}
 .dbody .btnrow{margin-bottom:11px}
+
+/* ---------- mileage: period switcher and custom dates ---------- */
+.pwrap{position:relative}
+.cpop{position:absolute;right:0;top:calc(100% + 6px);z-index:1100;width:300px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.18);padding:12px;display:grid;gap:10px}
+.cfields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cfield{display:grid;gap:4px}
+.cfield span{font-size:11.5px;font-weight:600;color:var(--ink-3)}
+.cfield .dbtn{width:100%;padding:0 8px;font-size:12.5px}
+.dbtn.on{border-color:var(--navy);box-shadow:0 0 0 1px var(--navy)}
+.cal.ccal{position:static;width:auto;border:0;box-shadow:none;padding:0}
+.cal .cd.inr{background:var(--surface-2)}
+.cpop .caln{margin:0}
+.cpop .btn:disabled{opacity:.5;cursor:default}
+@media (max-width:520px){.cpop{right:auto;left:0;width:min(300px,calc(100vw - 32px))}}

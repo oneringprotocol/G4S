@@ -55,7 +55,7 @@ The processed data (`*/v2/out/all_data*.json`) is included. To make UI or wordin
 **Tab: Route check**
 - A *Planned vs actual* / *▶ Replay* toggle, a Date picker and a Vehicle dropdown.
 - In Replay, the player bar (Play, clock, speed, Follow bus, Explain movement, timeline) sits under the map.
-- Date picker: ‹ and › step to the previous or next date with GPS; the date button opens a calendar of the current month and the previous month only (‹ › inside switch between the two). Future dates are greyed out. With the Live Feed (Total Secure) every past date in the two months can be picked: a date that is not loaded yet is fetched from Total Secure when picked (a few seconds), and a date without GPS says so. With the spreadsheet source only dates in the export can be picked. Escape or a click outside closes it.
+- Date picker: ‹ and › step to the previous or next date with GPS; the date button opens a calendar of the current month and the 2 months before it only (‹ › inside switch between them). Future dates are greyed out. With the Live Feed (Total Secure) every past date in those months can be picked: a date that is not loaded yet is fetched from Total Secure when picked (a few seconds), and a date without GPS says so. With the spreadsheet source only dates in the export can be picked. Escape or a click outside closes it.
 - **Tiles:**
   - planned stops validated;
   - actual km (GPS);
@@ -69,7 +69,12 @@ The processed data (`*/v2/out/all_data*.json`) is included. To make UI or wordin
 
 **Tab: Mileage & excess use**
 - Search by vehicle or by emirate (dropdowns), with navy totals.
-- Planned (pastel green) and unplanned (pastel orange) stacked km bars by Daily / Weekly / Monthly.
+- Planned (pastel blue) and unplanned (pastel orange) stacked km bars. Data covers this month and the 2 months before it.
+  - **Daily:** the last 7 days. **Weekly:** the last 4 weeks (Monday to Sunday, this week so far included). **Monthly:** this month and the 2 before it.
+  - **Custom:** a small panel with From and To, each opening its own calendar. The dates are at most 30 days apart (31 days with both ends), inside the data window. Once From is picked, the To calendar opens on the same month and only allows dates up to 30 days later.
+  - A **Total** column on the right shows the whole period, stacked the same way, on its own scale.
+  - Tiles and tables follow the period. Clicking a bar narrows the tables to that bar.
+  - With the Live Feed, days older than the loaded week are fetched in the background the first time; the page says how many vehicle days are left and fills in as they arrive.
 - Unplanned trips table, speeding table and stops outside geofences. The stops table has a validation column per row, saved in the browser, and a CSV download.
 
 **Tab: Fleet** (Live Feed only)

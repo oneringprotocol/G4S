@@ -256,7 +256,9 @@ Vehicle type is a 34 px navy square with the abbreviation, e.g. **DF** for Dongf
 - Hand-drawn SVG with stacked bars: planned (pastel blue, `--x2-svc`) + unplanned (pastel orange, `--x2-unp`) + accommodation moves and other (grey, `--x2-yard`). In the bar tooltip the planned line is navy, because pastel blue text is too faint on white. There are no red reference lines or planned km.
   - Bars have rounded tops (4 px).
   - In-bar labels are 12 px bold; side labels use `--ink-2`.
-- Daily / Weekly / Monthly segmented control.
+- Daily / Weekly / Monthly / Custom segmented control. Custom opens a popover (`.cpop`) under the control with From and To date buttons; each opens its own month calendar (same `.cal` style as the route date picker), with days outside the allowed range disabled. **Show** stays disabled until the dates are valid.
+- **Total column:** to the right of the bars, after a dashed divider, one stacked bar for the whole period on its own scale, labelled "Total" with the km on top in navy.
+- Day labels thin out when bars are narrow (custom periods up to 31 bars). A period with no GPS shows "no GPS" instead of a bar.
 - **Hover tooltip (`.svgtip`):** period, km per layer, and for unplanned km the number of trips and time.
 - **Legend:** small rounded squares under the chart.
 

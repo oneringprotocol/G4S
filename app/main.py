@@ -10,13 +10,13 @@ import time
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import quote
 
-from . import auth, config, ops, roads
+from . import auth, config, mileage as mi, ops, roads
 from .analysis import VehicleAnalysis
 from .geo import UAE, day_label
 from .plan import load_plan
@@ -116,6 +116,12 @@ class State:
         self.extra = OrderedDict()   # (vehicle, date) -> analysis fetched on demand, None when no GPS
         self.extra_lock = threading.Lock()
         self.loaded_at = time.time()
+        if self.source.on_demand:   # fetch older days for the Mileage tab in the background, once
+            first, _ = mi.window()
+            loaded_from = self.source.start.astimezone(UAE).date()
+            older = mi.days_between(first, loaded_from - timedelta(days=1))
+            mi.request(self, [(v, d) for v in self.devices if v in self.vehicles for d in older
+                              if not mi.cached(v, d, recs.get(v, []))[0]])
 
     def analysis_for(self, vno, day):
         """The analysis holding `day`: the loaded window, or (Total Secure) that date fetched now
@@ -167,9 +173,8 @@ ON_DEMAND_KEEP = 40   # dates fetched on demand kept in memory; Refresh clears t
 
 
 def calendar_range():
-    """First and last date the date picker offers: the previous month and this month, up to today (UAE)."""
-    today = datetime.now(UAE).date()
-    first = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    """First and last date the app offers: this month and the 2 months before it, up to today (UAE)."""
+    first, today = mi.window()
     return first.isoformat(), today.isoformat()
 
 
@@ -300,63 +305,75 @@ def vehicle_day(vno: str, day: str, request: Request):
     return d
 
 
-def _period(day, mode):
-    d = datetime.strptime(day, "%Y-%m-%d")
-    if mode == "weekly":
-        start = d - timedelta(days=d.weekday())      # weeks start on Monday
-        return start.strftime("%Y-%m-%d"), "Week of " + day_label(start.strftime("%Y-%m-%d"))
-    if mode == "monthly":
-        return d.strftime("%Y-%m"), d.strftime("%B %Y")
-    return day, day_label(day)
-
-
 @app.get("/api/mileage")
-def mileage(request: Request, vehicle: str = "all", emirate: str = "all", mode: str = "daily"):
+def mileage(request: Request, vehicle: str = "all", emirate: str = "all", mode: str = "daily",
+            frm: str = Query("", alias="from"), to: str = ""):
     st = state()
-    picked = [vno for vno, a in st.analysis.items()
-              if _can_see(request, vno) and (vehicle in ("all", vno)) and (emirate == "all" or emirate in st.vehicles[vno].emirates)]
-    bars, unplanned, speeding, outside = {}, [], [], []
-    totals = {"km": 0, "planned": 0, "unplanned": 0, "other": 0, "unplanned_trips": 0,
-              "speeding": 0, "outside": 0, "outside_min": 0}
+    try:
+        first, last = mi.span(mode, frm, to)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    lo, hi = calendar_range()
+    pool = st.devices if st.source.on_demand else st.analysis   # Total Secure can fetch any day in the window
+    picked = [vno for vno in sorted(pool) if vno in st.vehicles and _can_see(request, vno)
+              and vehicle in ("all", vno) and (emirate == "all" or emirate in st.vehicles[vno].emirates)]
+    loaded_from = st.source.start.astimezone(UAE).date().isoformat() if st.source.on_demand else None
+    days = mi.days_between(first, last)
+    bmode = "daily" if mode == "custom" else mode
+    bars = OrderedDict()
+    for day in days:   # every period gets a bar, even with no GPS
+        key, label = mi.period_of(day, bmode)
+        bars.setdefault(key, {"key": key, "label": label, "from": day, "to": day, "planned": 0, "unplanned": 0,
+                              "other": 0, "unplanned_trips": 0, "unplanned_min": 0, "gps_days": 0})["to"] = day
+    unplanned, speeding, outside, missing = [], [], [], []
+    totals = {"km": 0, "planned": 0, "unplanned": 0, "other": 0}
     for vno in picked:
-        a = st.analysis[vno]
-        for day in a.days:
-            d = a.day(day)
-            k = d["kpi"]
-            key, label = _period(day, mode)
-            b = bars.setdefault(key, {"key": key, "label": label, "planned": 0, "unplanned": 0,
-                                      "other": 0, "unplanned_trips": 0, "unplanned_min": 0})
-            b["planned"] += k["km_planned"]
-            b["unplanned"] += k["km_unplanned"]
-            b["other"] += k["km_other"]
-            totals["km"] += k["km"]
-            totals["planned"] += k["km_planned"]
-            totals["unplanned"] += k["km_unplanned"]
-            totals["other"] += k["km_other"]
-            for r in d["runs"]:
-                if r["kind"] == "unplanned":
-                    b["unplanned_trips"] += 1
-                    b["unplanned_min"] += (r["t1"] - r["t0"]) / 60
-                    unplanned.append(dict(r, vehicle=vno, day=day, day_label=d["label"]))
-            for s in d["speeding"]:
-                speeding.append(dict(s, vehicle=vno, day=day, day_label=d["label"]))
-            for o in d["outside"]:
-                outside.append(dict(o, vehicle=vno, day=day, day_label=d["label"],
-                                    key="%s_%s_%d" % (vno, day, o["t0"])))
-    totals["unplanned_trips"] = len(unplanned)
-    totals["speeding"] = len(speeding)
-    totals["outside"] = len(outside)
-    totals["outside_min"] = round(sum(o["dur_min"] for o in outside))
-    for k in ("km", "planned", "unplanned", "other"):
+        a, recs = st.analysis.get(vno), st.recs.get(vno, [])
+        for day in days:
+            if a and day in a.days and (loaded_from is None or day >= loaded_from):
+                sm = mi.summarize(a.day(day))
+            elif loaded_from is None or day >= loaded_from:
+                continue   # inside the loaded window with no GPS, or the xlsx export does not cover it
+            else:
+                known, sm = mi.cached(vno, day, recs)
+                if not known:
+                    missing.append((vno, day))
+                    continue
+            if not sm:
+                continue
+            b = bars[mi.period_of(day, bmode)[0]]
+            b["gps_days"] += 1
+            for k in ("planned", "unplanned", "other"):
+                b[k] += sm[k]
+                totals[k] += sm[k]
+            totals["km"] += sm["km"]
+            label = sm["label"]
+            for r in sm["runs"]:
+                b["unplanned_trips"] += 1
+                b["unplanned_min"] += (r["t1"] - r["t0"]) / 60
+                unplanned.append(dict(r, vehicle=vno, day=day, day_label=label))
+            for x in sm["speeding"]:
+                speeding.append(dict(x, vehicle=vno, day=day, day_label=label))
+            for o in sm["outside"]:
+                outside.append(dict(o, vehicle=vno, day=day, day_label=label, key="%s_%s_%d" % (vno, day, o["t0"])))
+    if missing:
+        mi.request(st, missing)
+    for k in totals:
         totals[k] = round(totals[k], 1)
+    totals.update(unplanned_trips=len(unplanned), speeding=len(speeding), outside=len(outside),
+                  outside_min=round(sum(o["dur_min"] for o in outside)))
     out_bars = []
-    for b in sorted(bars.values(), key=lambda x: x["key"]):
+    for b in bars.values():
         for k in ("planned", "unplanned", "other"):
             b[k] = round(b[k], 1)
         b["unplanned_min"] = round(b["unplanned_min"])
         out_bars.append(b)
+    for rows in (unplanned, speeding, outside):
+        rows.sort(key=lambda r: (r["day"], r.get("t0") or 0))
     return {"vehicles": picked, "bars": out_bars, "totals": totals,
-            "unplanned": unplanned, "speeding": speeding, "outside": outside}
+            "range": {"mode": mode, "from": first.isoformat(), "to": last.isoformat()},
+            "window": {"from": lo, "to": hi, "custom_max_days": mi.CUSTOM_MAX_DAYS},
+            "loading": len(missing), "unplanned": unplanned, "speeding": speeding, "outside": outside}
 
 
 # ---------- accounts ----------
