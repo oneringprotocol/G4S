@@ -253,7 +253,7 @@ Vehicle type is a 34 px navy square with the abbreviation, e.g. **DF** for Dongf
 - **Show ↗** on each row opens the stop on the Route check map.
 
 ### Charts (Mileage & excess use)
-- Hand-drawn SVG with stacked bars: planned (pastel blue, `--x2-svc`) + unplanned (pastel orange, `--x2-unp`) + accommodation moves and other (grey, `--x2-yard`). In the bar tooltip the planned line is navy, because pastel blue text is too faint on white. There are no red reference lines or planned km.
+- Hand-drawn SVG with stacked bars in two layers: planned (pastel blue, `--x2-svc`, includes workshop drives) + unplanned (pastel orange, `--x2-unp`, includes accommodation moves and other driving). There is no grey layer. In the bar tooltip the planned line is navy, because pastel blue text is too faint on white. There are no red reference lines or planned km.
   - Bars have rounded tops (4 px).
   - In-bar labels are 12 px bold; side labels use `--ink-2`.
 - Daily / Weekly / Monthly / Custom segmented control. Custom opens a popover (`.cpop`) under the control with From and To date buttons; each opens its own month calendar (same `.cal` style as the route date picker), with days outside the allowed range disabled. **Show** stays disabled until the dates are valid.

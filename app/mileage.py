@@ -23,7 +23,7 @@ from .geo import UAE, day_label
 
 log = logging.getLogger("g4s.mileage")
 
-RULES_VERSION = "1"            # bump when a change to the analysis changes km or events
+RULES_VERSION = "4"            # bump when a change to the analysis changes km or events
 CUSTOM_MAX_DAYS = 30           # custom periods: to minus from, at most 30 days
 BLOCK_DAYS = 7                 # older days are analysed a week at a time (with a day either side)
 _DIR = config.CACHE / "mileage"
@@ -87,9 +87,12 @@ def days_between(a, b):
 
 # ---------- one vehicle day ----------
 def summarize(d):
-    """What the mileage view needs from an analysed day."""
+    """What the mileage view needs from an analysed day: km of planned trips, unplanned trips,
+    other driving (accommodation moves, driving outside a run) and workshop drives, kept apart.
+    The Mileage tab shows planned + workshop as planned, and unplanned + other as unplanned."""
     k = d["kpi"]
-    return {"km": k["km"], "planned": k["km_planned"], "unplanned": k["km_unplanned"], "other": k["km_other"],
+    return {"km": k["km"], "planned": k["km_planned"], "unplanned": k["km_unplanned"], "other": k["km_yard"],
+            "workshop": k["km_workshop"],
             "label": d["label"], "runs": [r for r in d["runs"] if r["kind"] == "unplanned"],
             "speeding": d["speeding"], "outside": d["outside"]}
 

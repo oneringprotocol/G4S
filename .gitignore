@@ -10,3 +10,6 @@ data/app.db
 data/outbox/
 data/setup_code.txt
 data/secrets/
+
+# client exports (vehicle locations)
+exports/

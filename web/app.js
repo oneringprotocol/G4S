@@ -7,6 +7,8 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const fmt = (n, d = 1) => n == null ? '–' : Number(n).toLocaleString('en', { maximumFractionDigits: d, minimumFractionDigits: 0 });
 const fmtMin = m => { m = Math.round(m); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min'; };
+// highest speeding reading confirmed by the GPS positions either side of it (see analysis.py)
+const topChecked = list => { const c = list.map(s => s.checked).filter(Boolean); return c.length ? `Top checked speed ${Math.max(...c)} km/h` : 'No reading checked by GPS'; };
 const hhmm = t => new Date((t + 4 * 3600) * 1000).toISOString().slice(11, 16);   // UAE time (UTC + 4 h)
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -385,7 +387,7 @@ function renderKpis() {
       s: `${k.trips_planned} trips in the G4S route plan`, click: k.trips_unplanned > 0 },
     { id: 'oz', v: k.outside, l: 'Stops outside geofences', s: k.outside ? `${fmtMin(k.outside_min)} in total · click to show` : 'None on this day', click: k.outside > 0 },
     { id: 'idle', v: k.idling, l: 'Idling at accommodation over 10 min', s: k.idling ? `${fmtMin(k.idling_min)} with engine on` : 'None on this day', click: k.idling > 0 },
-    { id: 'spd', v: k.speeding, l: 'Speeding over 100 km/h', s: k.speeding ? `Top speed ${k.max_speed} km/h · click for table` : 'None on this day', click: k.speeding > 0 },
+    { id: 'spd', v: k.speeding, l: 'Speeding over 100 km/h', s: k.speeding ? `${k.max_speed_checked ? `Top checked speed ${k.max_speed_checked} km/h` : 'No reading checked by GPS'} · click for table` : 'None on this day', click: k.speeding > 0 },
   ];
   $('#kpis').innerHTML = tiles.map(t => `<div class="kpi ${t.id}${t.click ? ' click' : ''}${S.panel === t.id ? ' on' : ''}" data-k="${t.id}" ${t.click ? 'role="button" tabindex="0"' : ''}>
     <div class="v">${t.v}</div><div class="l">${t.l}</div><div class="s">${t.s}</div></div>`).join('');
@@ -903,11 +905,11 @@ function renderMileage() {
     </div>
     <div class="tiles">
       <div class="tile"><div class="l">Actual km (GPS)</div><div class="v num">${fmt(t.km, 0)} km</div>
-        <span class="tl pos">${fmt(t.planned, 0)} km on planned trips</span><span class="tl neg">${fmt(t.unplanned, 0)} km unplanned</span><span class="tl">${fmt(t.other, 0)} km other moves</span></div>
+        <span class="tl pos">${fmt(t.planned, 0)} km planned, ${fmt(t.workshop, 0)} of it workshop drives</span><span class="tl neg">${fmt(t.unplanned, 0)} km unplanned</span></div>
       <div class="tile click" data-go="#t-unp" role="button" tabindex="0"><div class="l">Unplanned trips</div><div class="v num">${t.unplanned_trips}</div>
-        <span class="tl neg">${fmt(t.unplanned, 0)} km in ${fmtMin(unMin)}</span><span class="tl neg">${nightN} at night</span><span class="tl">Open table ↗</span></div>
+        <span class="tl neg">${fmt(t.trips_km, 0)} km in ${fmtMin(unMin)}</span><span class="tl neg">${nightN} at night</span><span class="tl">Open table ↗</span></div>
       <div class="tile click spd" data-go="#t-spd" role="button" tabindex="0"><div class="l">Speeding over 100 km/h</div><div class="v num">${t.speeding}</div>
-        <span class="tl ${t.speeding ? 'neg' : 'pos'}">${t.speeding ? 'Top speed ' + Math.max(...d.speeding.map(s => s.max)) + ' km/h' : 'No speeding'}</span><span class="tl">Open table ↗</span></div>
+        <span class="tl ${t.speeding ? 'neg' : 'pos'}">${t.speeding ? topChecked(d.speeding) : 'No speeding'}</span><span class="tl">Open table ↗</span></div>
       <div class="tile click" data-go="#t-oz" role="button" tabindex="0"><div class="l">Stops outside geofences</div><div class="v num">${t.outside}</div>
         <span class="tl neg">${fmtMin(t.outside_min)} in total</span><span class="tl ${reviewed === t.outside && t.outside ? 'pos' : ''}">${reviewed} reviewed</span><span class="tl">Open table ↗</span></div>
     </div>
@@ -918,7 +920,7 @@ function renderMileage() {
           <div class="cpop hidden" id="cpop" role="dialog" aria-label="Custom dates"></div></div></div>
       ${d.loading ? `<div class="msg info">Loading older GPS from Total Secure: ${d.loading} vehicle day${d.loading === 1 ? '' : 's'} to go. The chart fills in as they arrive.</div>` : ''}
       <div class="chart" id="chart"></div>
-      <div class="clegend"><span><i style="background:${css('--x2-svc')}"></i>Planned trips</span><span><i style="background:${css('--x2-unp')}"></i>Unplanned trips</span><span><i style="background:${css('--x2-yard')}"></i>Accommodation moves and other</span></div>
+      <div class="clegend"><span><i style="background:${css('--x2-svc')}"></i>planned</span><span><i style="background:${css('--x2-unp')}"></i>unplanned</span><span class="muted">Drives to or from the workshop count as planned</span></div>
       <div class="note">Click a bar to filter the tables below to that period. The Total column is the whole period, on its own scale.</div>
     </div>
     ${M.period ? `<div style="margin-bottom:10px"><span class="fchip">Showing ${esc(M.period.label)} <button id="clr" aria-label="Clear filter">✕</button></span></div>` : ''}
@@ -1077,13 +1079,13 @@ function drawChart() {
   const tw = W < 520 ? 74 : 104;          // the Total column on the right, on its own scale
   const pr = tw + 14, plotW = W - pl - pr;
   if (!bars.some(b => b.gps_days)) { el.innerHTML = `<div class="empty">${M.data.loading ? 'Loading GPS for this period…' : 'No GPS in this period.'}</div>`; return; }
-  const max = Math.max(...bars.map(b => b.planned + b.unplanned + b.other), 1);
+  const max = Math.max(...bars.map(b => b.planned + b.unplanned), 1);
   const step = Math.pow(10, Math.floor(Math.log10(max))) * (max / Math.pow(10, Math.floor(Math.log10(max))) > 5 ? 2 : 1);
   const top = Math.ceil(max / step) * step;
   const y = v => pt + (H - pt - pb) * (1 - v / top);
   const gap = plotW / bars.length, bw = Math.min(64, gap * .62);
-  const col = { planned: css('--x2-svc'), unplanned: css('--x2-unp'), other: css('--x2-yard') };
-  const KS = ['planned', 'unplanned', 'other'];
+  const col = { planned: css('--x2-svc'), unplanned: css('--x2-unp') };
+  const KS = ['planned', 'unplanned'];
   const stack = (b, x, w, yy, labels) => {   // one stacked bar; returns its svg
     let out = '', base = 0;
     const segs = KS.filter(k => b[k] > 0);
@@ -1101,7 +1103,7 @@ function drawChart() {
   let svg = '';
   for (let v = 0; v <= top; v += step) svg += `<line x1="${pl}" x2="${pl + plotW}" y1="${y(v)}" y2="${y(v)}" stroke="${css('--line')}"/><text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="${css('--ink-3')}">${fmt(v, 0)}</text>`;
   bars.forEach((b, i) => {
-    const x = pl + gap * i + (gap - bw) / 2, sum = b.planned + b.unplanned + b.other;
+    const x = pl + gap * i + (gap - bw) / 2, sum = b.planned + b.unplanned;
     const sel = M.period && M.period.key === b.key;
     svg += stack(b, x, bw, y, true);
     if (b.gps_days && gap >= 30) svg += `<text x="${x + bw / 2}" y="${y(sum) - 6}" text-anchor="middle" font-size="11.5" font-weight="${sel ? 800 : 600}" fill="${css('--ink-2')}">${fmt(sum, 0)}</text>`;
@@ -1113,7 +1115,7 @@ function drawChart() {
     svg += `<rect class="hit" data-i="${i}" x="${pl + gap * i}" y="${pt}" width="${gap}" height="${H - pt}" fill="transparent" style="cursor:pointer"/>`;
   });
   // Total column: the whole period, scaled to its own height
-  const tx = W - tw, tbw = Math.min(56, tw - 24), tsum = t.planned + t.unplanned + t.other;
+  const tx = W - tw, tbw = Math.min(56, tw - 24), tsum = t.planned + t.unplanned;
   const ty = v => pt + (H - pt - pb) * (1 - v / Math.max(tsum, 1));
   svg += `<line x1="${tx - 8}" x2="${tx - 8}" y1="${pt - 14}" y2="${H - 4}" stroke="${css('--line')}" stroke-dasharray="3 3"/>`;
   svg += stack(t, tx + (tw - tbw) / 2, tbw, ty, true);
@@ -1124,11 +1126,11 @@ function drawChart() {
   const tip = $('.svgtip', el);
   $$('.hit', el).forEach(r => {
     const isT = r.dataset.i === 'total';
-    const b = isT ? { label: 'Total · ' + rangeText(), planned: t.planned, unplanned: t.unplanned, other: t.other,
+    const b = isT ? { label: 'Total · ' + rangeText(), planned: t.planned, unplanned: t.unplanned,
       unplanned_trips: t.unplanned_trips, unplanned_min: M.data.bars.reduce((a, x) => a + x.unplanned_min, 0), gps_days: 1 } : bars[+r.dataset.i];
     r.onmousemove = e => {
       const box = el.getBoundingClientRect();
-      tip.innerHTML = `<b>${esc(b.label)}</b><br>${b.gps_days ? `<span class="pl">${fmt(b.planned)} km planned trips</span><br><span class="neg">${fmt(b.unplanned)} km unplanned · ${b.unplanned_trips} trips · ${fmtMin(b.unplanned_min)}</span><br>${fmt(b.other)} km other moves` : 'No GPS'}`;
+      tip.innerHTML = `<b>${esc(b.label)}</b><br>${b.gps_days ? `<span class="pl">${fmt(b.planned)} km planned</span><br><span class="neg">${fmt(b.unplanned)} km unplanned · ${b.unplanned_trips} trips · ${fmtMin(b.unplanned_min)}</span>` : 'No GPS'}`;
       tip.classList.remove('hidden');
       tip.style.left = Math.max(4, Math.min(e.clientX - box.left + 12, box.width - tip.offsetWidth - 4)) + 'px';
       tip.style.top = (e.clientY - box.top - 10) + 'px';

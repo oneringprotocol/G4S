@@ -329,8 +329,17 @@ class VehicleAnalysis:
                     if p.speed > cur["max"]:
                         cur.update(max=p.speed, lat=p.lat, lon=p.lon)
                 else:
-                    cur = {"t0": p.t, "t1": p.t, "max": p.speed, "lat": p.lat, "lon": p.lon}
+                    cur = {"t0": p.t, "t1": p.t, "max": p.speed, "lat": p.lat, "lon": p.lon, "checked": None}
                     speeding.append(cur)
+                # fact check: the tracker's reading counts as checked when the distance between the
+                # points either side, over the time between them, gives the same speed
+                if 0 < k < len(pts) - 1:
+                    q0, q1 = pts[k - 1], pts[k + 1]
+                    dt = q1.t - q0.t
+                    if 0 < dt <= C.SPEED_CHECK_MAX_GAP_S and not q0.inferred and not q1.inferred:
+                        moved = dist_m(q0.lat, q0.lon, q1.lat, q1.lon) / dt * 3.6
+                        if abs(moved - p.speed) <= C.SPEED_CHECK_TOL_KMH and p.speed > (cur["checked"] or 0):
+                            cur["checked"] = p.speed
         for s in speeding:
             ns, nd = S.nearest(s["lat"], s["lon"])
             s.update(time=hhmm(s["t0"]), dur_s=s["t1"] - s["t0"], driver=v.driver,
@@ -365,10 +374,11 @@ class VehicleAnalysis:
                 "pct": round(100 * counts["Validated"] / planned_stops) if planned_stops else None,
                 "km": round(km_total, 1), "km_planned": round(km_planned, 1),
                 "km_unplanned": round(km_unpl, 1), "km_other": round(km_yard + km_by["workshop"], 1),
+                "km_yard": round(km_yard, 1), "km_workshop": round(km_by["workshop"], 1),
                 "trips_planned": len(trips), "trips_run": n_run, "trips_unplanned": n_unpl,
                 "outside": len(outside), "outside_min": round(sum(o["dur_min"] for o in outside)),
                 "idling": len(idling), "idling_min": sum(i["dur_min"] for i in idling),
-                "speeding": len(speeding), "max_speed": max((s["max"] for s in speeding), default=None),
+                "speeding": len(speeding), "max_speed": max((s["max"] for s in speeding), default=None), "max_speed_checked": max((s["checked"] for s in speeding if s["checked"]), default=None),
             },
             "counts": dict(counts),
             "trips": trips, "runs": runs_out, "outside": outside,

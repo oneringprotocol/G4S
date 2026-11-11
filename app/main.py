@@ -194,13 +194,32 @@ _state = None
 _lock = threading.Lock()
 
 
+RELOAD_RETRY_S = 600   # a failed daily reload is tried again after 10 min
+
+
+def _stale(st):
+    """Live feed data loaded on an earlier UAE day (and no failed reload in the last 10 min)."""
+    return (st.source.on_demand and time.time() >= getattr(st, "retry_at", 0)
+            and datetime.fromtimestamp(st.loaded_at, UAE).date() != datetime.now(UAE).date())
+
+
 def state() -> State:
-    # built on first use; when the GPS provider fails nothing is kept, so the next request tries again
+    # built on first use; when the GPS provider fails nothing is kept, so the next request tries again.
+    # With the live feed the data is loaded again on the first request of a new UAE day, so a server
+    # left running picks up the new day's GPS without anyone pressing Refresh.
     global _state
-    if _state is None:
+    st = _state
+    if st is None or _stale(st):
         with _lock:
-            if _state is None:
-                _state = State()
+            st = _state
+            if st is None or _stale(st):
+                try:
+                    _state = State()
+                except Exception:
+                    if st is None:
+                        raise
+                    log.warning("Daily reload failed; showing the earlier data", exc_info=True)
+                    st.retry_at = time.time() + RELOAD_RETRY_S
     return _state
 
 
@@ -335,9 +354,9 @@ def mileage(request: Request, vehicle: str = "all", emirate: str = "all", mode: 
     for day in days:   # every period gets a bar, even with no GPS
         key, label = mi.period_of(day, bmode)
         bars.setdefault(key, {"key": key, "label": label, "from": day, "to": day, "planned": 0, "unplanned": 0,
-                              "other": 0, "unplanned_trips": 0, "unplanned_min": 0, "gps_days": 0})["to"] = day
+                              "unplanned_trips": 0, "unplanned_min": 0, "gps_days": 0})["to"] = day
     unplanned, speeding, outside, missing = [], [], [], []
-    totals = {"km": 0, "planned": 0, "unplanned": 0, "other": 0}
+    totals = {"km": 0, "planned": 0, "unplanned": 0, "workshop": 0, "trips_km": 0}
     for vno in picked:
         a, recs = st.analysis.get(vno), st.recs.get(vno, [])
         for day in days:
@@ -354,10 +373,15 @@ def mileage(request: Request, vehicle: str = "all", emirate: str = "all", mode: 
                 continue
             b = bars[mi.period_of(day, bmode)[0]]
             b["gps_days"] += 1
-            for k in ("planned", "unplanned", "other"):
-                b[k] += sm[k]
-                totals[k] += sm[k]
-            totals["km"] += sm["km"]
+            # two kinds of km: planned (planned trips and workshop drives) and unplanned (everything else)
+            planned, unpl = sm["planned"] + sm["workshop"], sm["unplanned"] + sm["other"]
+            b["planned"] += planned
+            b["unplanned"] += unpl
+            totals["planned"] += planned
+            totals["unplanned"] += unpl
+            totals["workshop"] += sm["workshop"]
+            totals["trips_km"] += sm["unplanned"]   # km of the unplanned trips themselves
+            totals["km"] += planned + unpl
             label = sm["label"]
             for r in sm["runs"]:
                 b["unplanned_trips"] += 1
@@ -375,7 +399,7 @@ def mileage(request: Request, vehicle: str = "all", emirate: str = "all", mode: 
                   outside_min=round(sum(o["dur_min"] for o in outside)))
     out_bars = []
     for b in bars.values():
-        for k in ("planned", "unplanned", "other"):
+        for k in ("planned", "unplanned"):
             b[k] = round(b[k], 1)
         b["unplanned_min"] = round(b["unplanned_min"])
         out_bars.append(b)

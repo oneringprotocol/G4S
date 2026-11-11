@@ -63,6 +63,7 @@ The processed data (`*/v2/out/all_data*.json`) is included. To make UI or wordin
   - stops outside geofences (click to see numbered purple pins and a fly-to list);
   - idling at accommodation over 10 min;
   - speeding over 100 km/h (click for a table of when, driver and where).
+  - The Speeding tile shows the top **checked** speed: the highest tracker reading that the GPS positions either side of it confirm (the distance between them over the time between them gives a speed within 15 km/h of the reading, with the two positions at most 60 s apart). Single-point spikes, such as a 151 km/h reading between 108 and 95, are left out.
 - The map shows the planned route (dashed) and the actual GPS route (orange). Geofences are drawn as 300 m circles.
 - **Side panel:** total planned trips and stop visits for the day, plus a status per stop: Validated, Passed, Out of window or Not visited.
 - **After hours:** planned and unplanned trips "at night".
@@ -70,6 +71,8 @@ The processed data (`*/v2/out/all_data*.json`) is included. To make UI or wordin
 **Tab: Mileage & excess use**
 - Search by vehicle or by emirate (dropdowns), with navy totals.
 - Planned (pastel blue) and unplanned (pastel orange) stacked km bars. Data covers this month and the 2 months before it.
+  - Two kinds of km. **Planned:** runs matched to the G4S plan, plus drives to or from a workshop geofence. **Unplanned:** everything else: unplanned trips, accommodation moves (runs that stay within 1.5 km of home) and any driving outside a run.
+  - Planned and unplanned add up to all the GPS km of the period. The Actual km tile says how much of planned is workshop drives; the Unplanned trips tile shows only the km of the unplanned trips themselves. The Speeding tile shows the top checked speed (see above).
   - **Daily:** the last 7 days. **Weekly:** the last 4 weeks (Monday to Sunday, this week so far included). **Monthly:** this month and the 2 before it.
   - **Custom:** a small panel with From and To, each opening its own calendar. The dates are at most 30 days apart (31 days with both ends), inside the data window. Once From is picked, the To calendar opens on the same month and only allows dates up to 30 days later.
   - A **Total** column on the right shows the whole period, stacked the same way, on its own scale.
